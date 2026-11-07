@@ -65,7 +65,7 @@ function Controls() {
   );
 }
 
-export default function TitleBar({ tabs, view, onView, busy, info }: Props) {
+export default function TitleBar({ tabs, view, onView, busy }: Props) {
     return (
         <header className={"bar" + (IS_MAC ? " mac" : "")} data-tauri-drag-region>
         <div className="bar-l" data-tauri-drag-region>
