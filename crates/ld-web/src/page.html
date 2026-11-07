@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LocalDrop</title>
+<style>
+:root{color-scheme:light dark;--bg:#eef3fb;--card:#fff;--fg:#1d1d1f;--muted:#6e6e73;--accent:#0a84ff;--line:rgba(60,60,67,.14);--ok:#30d158;--err:#ff453a}
+@media(prefers-color-scheme:dark){:root{--bg:#0b1019;--card:#1c2230;--fg:#f5f5f7;--muted:#a1a1a6;--line:rgba(255,255,255,.12)}}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:var(--bg);color:var(--fg);font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;display:flex;justify-content:center;padding:20px 14px}
+main{width:100%;max-width:520px}
+h1{font-size:20px;margin:6px 4px 2px;overflow-wrap:anywhere}
+.sub{color:var(--muted);font-size:13px;margin:0 4px 16px}
+.card{background:var(--card);border-radius:18px;box-shadow:0 4px 24px rgba(20,40,80,.1);overflow:hidden;margin-top:14px}
+.row{display:flex;align-items:center;gap:12px;padding:13px 16px;border-top:1px solid var(--line)}
+.row:first-child{border-top:0}
+.name{flex:1;min-width:0;overflow-wrap:anywhere;font-weight:500;font-size:15px}
+.meta{color:var(--muted);font-size:12px;display:block;font-weight:400}
+.btn{border:0;border-radius:999px;background:var(--accent);color:#fff;padding:9px 16px;font:inherit;font-size:14px;font-weight:600;text-decoration:none;cursor:pointer;white-space:nowrap}
+.big{display:block;width:100%;margin-top:14px;padding:14px;text-align:center;font-size:16px}
+.drop{margin-top:14px;border:2px dashed var(--line);border-radius:18px;padding:28px 16px;text-align:center;color:var(--muted)}
+.drop.over{border-color:var(--accent)}
+.bar{height:4px;border-radius:2px;background:var(--line);margin-top:6px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .15s}
+.ok{color:var(--ok)}.err{color:var(--err)}
+.note{color:var(--muted);font-size:12px;margin:14px 6px 0;text-align:center}
+.hidden{display:none}
+.pin{display:flex;flex-direction:column;align-items:center;gap:18px;margin-top:10px}
+.dots{display:flex;gap:14px}
+.dots i{width:14px;height:14px;border-radius:50%;border:2px solid var(--muted);transition:background .12s,border-color .12s}
+.dots i.on{background:var(--accent);border-color:var(--accent)}
+.pad{display:grid;grid-template-columns:repeat(3,76px);gap:14px}
+.key{width:76px;height:76px;border-radius:50%;border:0;background:var(--card);color:var(--fg);font:inherit;font-size:28px;box-shadow:0 2px 10px rgba(20,40,80,.1);cursor:pointer;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+.key:active{background:var(--accent);color:#fff}
+.pin-msg{min-height:20px;margin:0;font-size:13px;color:var(--err);text-align:center}
+.shake{animation:shake .4s}
+@keyframes shake{20%,60%{transform:translateX(-10px)}40%,80%{transform:translateX(10px)}}
+</style>
+</head>
+<body>
+<main>
+<h1 id="h">LocalDrop</h1>
+<p class="sub" id="sub">Загрузка…</p>
+<div id="app"></div>
+<p class="note" id="note"></p>
+</main>
+<script>
+(function () {
+  var base = location.pathname.replace(/\/+$/, '');
+  var app = document.getElementById('app'), h = document.getElementById('h');
+  var sub = document.getElementById('sub'), note = document.getElementById('note');
+  var left = 0, ticking = false, keyHandler = null;
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+  function fmt(n) {
+    var u = ['Б', 'КБ', 'МБ', 'ГБ'], i = 0;
+    while (n >= 1024 && i < 3) { n /= 1024; i++; }
+    return (i ? n.toFixed(n < 10 ? 1 : 0) : n) + ' ' + u[i];
+  }
+  function dead(msg) {
+    if (keyHandler) { document.removeEventListener('keydown', keyHandler); keyHandler = null; }
+    app.textContent = '';
+    h.textContent = 'LocalDrop';
+    sub.textContent = msg;
+    note.textContent = '';
+  }
+  function tick() {
+    if (left <= 0) { note.textContent = 'Срок действия ссылки истёк.'; return; }
+    var m = Math.floor(left / 60), s = left % 60;
+    note.textContent = 'Ссылка действует ещё ' + m + ':' + (s < 10 ? '0' : '') + s +
+      '. Передача идёт по локальной сети без шифрования.';
+    left--;
+    setTimeout(tick, 1000);
+  }
+
+  function share(d) {
+    h.textContent = 'Файлы с «' + d.device + '»';
+    sub.textContent = 'Нажмите «Скачать», чтобы сохранить файл на это устройство.';
+    var card = el('div', 'card');
+    d.files.forEach(function (f, i) {
+      var row = el('div', 'row'), name = el('div', 'name', f.name);
+      name.appendChild(el('span', 'meta', fmt(f.size)));
+      var a = el('a', 'btn', 'Скачать');
+      a.href = base + '/f/' + i;
+      a.setAttribute('download', f.name);
+      row.appendChild(name);
+      row.appendChild(a);
+      card.appendChild(row);
+    });
+    app.appendChild(card);
+    if (d.files.length > 1) {
+      var all = el('button', 'btn big', 'Скачать все');
+      all.onclick = function () {
+        card.querySelectorAll('a.btn').forEach(function (a, i) {
+          setTimeout(function () { a.click(); }, i * 700);
+        });
+      };
+      app.appendChild(all);
+    }
+  }
+
+  function up(f, st, fill) {
+    return new Promise(function (res) {
+      var x = new XMLHttpRequest();
+      x.open('POST', base + '/u');
+      x.setRequestHeader('X-File-Name', encodeURIComponent(f.name));
+      st.textContent = 'Отправка…';
+      x.upload.onprogress = function (e) {
+        if (e.lengthComputable) {
+          fill.style.width = (e.loaded * 100 / e.total) + '%';
+          st.textContent = fmt(e.loaded) + ' из ' + fmt(e.total);
+        }
+      };
+      x.onload = function () {
+        if (x.status === 200) { fill.style.width = '100%'; st.textContent = 'Готово'; st.className = 'meta ok'; }
+        else { st.textContent = x.responseText || ('Ошибка ' + x.status); st.className = 'meta err'; }
+        res();
+      };
+      x.onerror = function () {
+        st.textContent = 'Не удалось отправить (возможно, превышен лимит или ссылка закрыта)';
+        st.className = 'meta err';
+        res();
+      };
+      x.send(f);
+    });
+  }
+
+  function receive(d) {
+    h.textContent = 'Отправить на «' + d.device + '»';
+    sub.textContent = 'Выберите файлы - они сохранятся на этом устройстве.';
+    if (d.maxBytes) sub.textContent += ' Лимит: ' + fmt(d.maxBytes) + '.';
+    var inp = el('input'); inp.type = 'file'; inp.multiple = true; inp.className = 'hidden';
+    var drop = el('div', 'drop', 'Перетащите файлы сюда или нажмите кнопку ниже');
+    var btn = el('button', 'btn big', 'Выбрать файлы');
+    var list = el('div', 'card hidden');
+    var queue = Promise.resolve();
+
+    function go(files) {
+      list.classList.remove('hidden');
+      Array.prototype.forEach.call(files, function (f) {
+        var row = el('div', 'row'), name = el('div', 'name', f.name);
+        var st = el('span', 'meta', 'В очереди'), bar = el('div', 'bar'), fill = el('i');
+        bar.appendChild(fill); name.appendChild(st); name.appendChild(bar);
+        row.appendChild(name); list.appendChild(row);
+        queue = queue.then(function () { return up(f, st, fill); });
+      });
+    }
+    btn.onclick = function () { inp.click(); };
+    inp.onchange = function () { go(inp.files); inp.value = ''; };
+    ['dragenter', 'dragover'].forEach(function (n) {
+      drop.addEventListener(n, function (e) { e.preventDefault(); drop.classList.add('over'); });
+    });
+    ['dragleave', 'drop'].forEach(function (n) {
+      drop.addEventListener(n, function (e) { e.preventDefault(); drop.classList.remove('over'); });
+    });
+    drop.addEventListener('drop', function (e) { go(e.dataTransfer.files); });
+    app.appendChild(drop); app.appendChild(btn); app.appendChild(inp); app.appendChild(list);
+  }
+
+  function start(d) {
+    left = d.expiresIn;
+    if (!ticking) { ticking = true; tick(); }
+    app.textContent = '';
+    if (d.kind === 'share') share(d); else receive(d);
+  }
+
+  function pinScreen(d) {
+    var len = d.length || 4, val = '', busy = false, lock = 0, timer = null;
+    h.textContent = 'LocalDrop';
+    sub.textContent = 'Введите PIN-код, который показан на устройстве отправителя';
+    note.textContent = '';
+    app.textContent = '';
+    var wrap = el('div', 'pin'), dots = el('div', 'dots'), msg = el('p', 'pin-msg'), pad = el('div', 'pad');
+    for (var i = 0; i < len; i++) dots.appendChild(el('i'));
+
+    function render() {
+        for (var j = 0; j < len; j++) dots.children[j].className = j < val.length ? 'on' : '';
+    }
+    function startLock(sec) {
+        lock = sec;
+        clearInterval(timer);
+        function upd() { msg.textContent = lock > 0 ? 'Слишком много попыток. Повторите через ' + lock + ' с' : ''; }
+        upd();
+        timer = setInterval(function () { lock--; upd(); if (lock <= 0) clearInterval(timer); }, 1000);
+    }
+    function fail(status, j) {
+        wrap.classList.add('shake');
+        setTimeout(function () { wrap.classList.remove('shake'); }, 400);
+        val = ''; render(); busy = false;
+        if (status === 429) startLock(j.retryIn || 30);
+        else msg.textContent = 'Неверный PIN-код. Попыток до блокировки: ' + j.left;
+    }
+    function submit() {
+        busy = true;
+        fetch(base + '/pin', { method: 'POST', body: val, cache: 'no-store' })
+        .then(function (r) {
+            if (r.ok) { clearInterval(timer); load(); return; }
+            if (r.status === 404) { dead('Ссылка недействительна или истекла.'); return; }
+            return r.json().then(function (j) { fail(r.status, j); });
+        })
+        .catch(function () { busy = false; val = ''; render(); msg.textContent = 'Нет связи с устройством'; });
+    }
+    function press(k) {
+        if (busy || lock > 0) return;
+        if (k === 'del') val = val.slice(0, -1);
+        else if (val.length < len) val += k;
+        msg.textContent = '';
+        render();
+        if (val.length === len) submit();
+    }
+
+    ['1','2','3','4','5','6','7','8','9','','0','del'].forEach(function (k) {
+        if (!k) { pad.appendChild(el('span')); return; }
+        var b = el('button', 'key', k === 'del' ? '⌫' : k);
+        b.type = 'button';
+        b.onclick = function () { press(k); };
+        pad.appendChild(b);
+    });
+    keyHandler = function (e) {
+        if (/^[0-9]$/.test(e.key)) press(e.key);
+        else if (e.key === 'Backspace') press('del');
+    };
+    document.addEventListener('keydown', keyHandler);
+
+    wrap.appendChild(dots); wrap.appendChild(msg); wrap.appendChild(pad);
+    app.appendChild(wrap);
+    render();
+    if (d.retryIn > 0) startLock(d.retryIn);
+   }
+
+   function load() {
+    if (keyHandler) { document.removeEventListener('keydown', keyHandler); keyHandler = null; }
+    fetch(base + '/info', { cache: 'no-store' })
+        .then(function (r) {
+        if (r.status === 401) return r.json().then(pinScreen);
+        if (!r.ok) throw 0;
+        return r.json().then(start);
+        })
+        .catch(function () { dead('Ссылка недействительна или истекла.'); });
+   }
+   load();
+})();
+</script>
+</body>
+</html>

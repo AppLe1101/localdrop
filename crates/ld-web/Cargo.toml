@@ -1,0 +1,16 @@
+[package]
+name = "ld-web"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum = "0.7"
+tokio = { workspace = true }
+tokio-util = { version = "0.7", features = ["io"] }
+futures-util = "0.3"
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+getrandom = "0.2"
+local-ip-address = "0.6"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }

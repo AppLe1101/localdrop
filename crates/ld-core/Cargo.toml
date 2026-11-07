@@ -1,0 +1,14 @@
+[package]
+name = "ld-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ld-protocol = { path = "../ld-protocol" }
+ld-crypto = { path = "../ld-crypto" }
+ld-transport = { path = "../ld-transport" }
+quinn = { workspace = true }
+tokio = { workspace = true }
+blake3 = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }

@@ -1,0 +1,14 @@
+[package]
+name = "ld-cli"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ld-core = { path = "../ld-core" }
+ld-discovery = { path = "../ld-discovery" }
+ld-transport = { path = "../ld-transport" }
+ld-crypto = { path = "../ld-crypto" }
+dirs = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
