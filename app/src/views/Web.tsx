@@ -208,8 +208,8 @@ export default function WebView({ notify }: { notify: Notify }) {
           <Seg value={size} options={SIZES} onChange={setSize} />
         </div>
         <div className="srow">
-          <button className="pill primary lg" onClick={share}>Поделиться файлами…</button>
-          <button className="pill lg" onClick={receive}>Принять из браузера</button>
+          <button className="pill primary lg" onClick={share}><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>Поделиться файлами…</button>
+          <button className="pill lg" onClick={receive}><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>Принять из браузера</button>
         </div>
       </div>
 

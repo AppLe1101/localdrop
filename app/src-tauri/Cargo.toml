@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "0.1.0"
+version = "0.1.1"
 description = "LocalDrop"
 authors = ["ablochko"]
 edition = "2024"
@@ -30,6 +30,9 @@ tauri-plugin-dialog = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-global-shortcut = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
@@ -37,4 +40,3 @@ anyhow = { workspace = true }
 quinn = { workspace = true }
 dirs = { workspace = true }
 hostname = "0.4"
-tauri-plugin-notification = "2"

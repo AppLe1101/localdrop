@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "LocalDrop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "identifier": "com.ablochko.localdrop",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -54,6 +54,7 @@
       "wix": { "language": "ru-RU" }
     },
     "macOS": { "minimumSystemVersion": "11.0", "signingIdentity": "-" },
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -61,5 +62,12 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE4NEI4MDdBMjEzQjY2M0QKUldROVpqc2hlb0JMcUFMWEIwcU1GL2lSMWtYZW1MVFFnRWpvWENLbWl1OEZvU0FpUytyc3YxNi8K",
+      "endpoints": ["https://github.com/AppLe1101/localdrop/releases/latest/download/latest.json"],
+      "windows": { "installMode": "passive" }
+    }
   }
 }

@@ -10,6 +10,7 @@ import SettingsView from "./views/Settings";
 import WebView from "./views/Web";
 import TitleBar from "./components/TitleBar";
 import type { Peer, Transfer } from "./types";
+import { checkForUpdates, getAutoCheck, installUpdate, useUpdater } from "./updater";
 import "./App.css";
 
 type View = "radar" | "devices" | "web" | "history" | "settings";
@@ -209,6 +210,34 @@ export default function App() {
     return () => window.removeEventListener("paste", onPaste);
   }, []);
 
+  const upd = useUpdater();
+
+  useEffect(() => {
+    if (!getAutoCheck()) return;
+    const first = setTimeout(() => checkForUpdates(true), 8000);
+    const every = setInterval(() => getAutoCheck() && checkForUpdates(true), 6 * 3600 * 1000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(every);
+    };
+  }, []);
+
+  const toldVersion = useRef("");
+  useEffect(() => {
+    if (upd.s === "available" && toldVersion.current !== upd.version) {
+      toldVersion.current = upd.version;
+      notify(
+        {
+          kind: "info",
+          title: `Доступна версия ${upd.version}`,
+          text: "Приложение перезапустится после установки",
+          action: { label: "Обновить", run: () => installUpdate() },
+        },
+        20000,
+      );
+    }
+  }, [upd, notify])
+
   const pickFolder = useCallback(async () => {
   const r = await open({ directory: true, multiple: false });
     return typeof r === "string" ? [r] : [];
@@ -339,13 +368,20 @@ export default function App() {
             ) : (
               <>
                 <span className="dock-text hint">Перетащите файл или папку, либо вставьте текст (Ctrl+V)</span>
-                <button className="pill" onClick={async () => { const f = await pickFiles(); if (f.length) setStaged(f); }}>Файлы</button>
-                <button className="pill" onClick={async () => { const f = await pickFolder(); if (f.length) setStaged(f); }}>Папка</button>
-                <button className="pill" onClick={() => { setDraft(""); setComposing(true); }}>Текст</button>
+                <button className="pill" title="Файлы" aria-label="Файлы" onClick={async () => { const f = await pickFiles(); if (f.length) setStaged(f); }}>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.35 22H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v5.35"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M14 19h6"/><path d="M17 16v6"/></svg>
+                </button>
+                <button className="pill" title="Папка" aria-label="Папка" onClick={async () => { const f = await pickFolder(); if (f.length) setStaged(f); }}>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+                </button>
+                <button className="pill" title="Текст" aria-label="Текст" onClick={() => { setDraft(""); setComposing(true); }}>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5h6"/><path d="M15 12h6"/><path d="M3 19h18"/><path d="m3 12 3.553-7.724a.5.5 0 0 1 .894 0L11 12"/><path d="M3.92 10h6.16"/></svg>
+                </button>
               </>
             )}
-            <button className={"pill" + (sheet ? " primary" : "")} onClick={() => setSheet((v) => !v)}>
-              Передачи
+            <button style={{padding: "8px 12px"}} className={"pill" + (sheet ? " primary" : "")} onClick={() => setSheet((v) => !v)}>
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/></svg>
+              <span className="pill-text">Передачи</span>
               {active.length > 0 && <span className="badge">{active.length}</span>}
             </button>
           </footer>

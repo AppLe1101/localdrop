@@ -5,6 +5,8 @@ import { listen } from "@tauri-apps/api/event";
 import type { Toast } from "../useLocalDrop";
 import type { MyInfo, SettingsData, Visibility } from "../types";
 import { getTheme, setTheme, type Theme } from "../theme";
+import { checkForUpdates, getAutoCheck, installUpdate, setAutoCheck, useUpdater } from "../updater";
+import { human } from "../format";
 import { getVersion } from "@tauri-apps/api/app";
 
 const MODES: { key: Visibility; title: string; text: string }[] = [
@@ -145,6 +147,9 @@ export default function SettingsView({ info, notify, onChanged }: Props) {
     return () => window.removeEventListener("keydown", onKey, true);
   }, [capturing]);
 
+  const upd = useUpdater();
+  const [auto, setAuto] = useState(getAutoCheck());
+
   if (!data) return <section className="page" />;
 
   return (
@@ -196,7 +201,7 @@ export default function SettingsView({ info, notify, onChanged }: Props) {
             <div className="label">Папка загрузок</div>
             <div className="value">{data.downloadDir}</div>
           </div>
-          <button className="pill" onClick={chooseDir}>Изменить…</button>
+          <button className="pill" title="Изменить…" onClick={chooseDir}><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 21h8"/><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></svg></button>
           <button className="pill" onClick={() => setDir("")}>По умолчанию</button>
         </div>
       </div>
@@ -210,8 +215,8 @@ export default function SettingsView({ info, notify, onChanged }: Props) {
           </div>
           <kbd className="kbd">{capturing ? "Нажмите сочетание…" : pretty(data.hotkey)}</kbd>
           <button className="pill" onClick={() => setCapturing((v) => !v)}>{capturing ? "Отмена" : "Изменить"}</button>
-          <button className="pill" onClick={() => saveHotkey(DEFAULT_HOTKEY)}>По умолчанию</button>
-          <button className="pill" onClick={() => saveHotkey("")}>Отключить</button>
+          <button className="pill" title="По умолчанию" onClick={() => saveHotkey(DEFAULT_HOTKEY)}><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button>
+          <button className="pill" title="Отключить" onClick={() => saveHotkey("")}><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
         </div>
       </div>
 
@@ -252,6 +257,55 @@ export default function SettingsView({ info, notify, onChanged }: Props) {
         </div>
       </div>
 
+      <div className="day">Обновления</div>
+      <div className="group glass">
+        <div className="srow">
+          <div className="grow">
+            <div className="label">
+              {upd.s === "checking" && "Проверка…"}
+              {upd.s === "uptodate" && "Установлена последняя версия"}
+              {upd.s === "available" && `Доступна версия ${upd.version}`}
+              {upd.s === "downloading" &&
+                `Загрузка… ${upd.total ? Math.floor((upd.done * 100) / upd.total) + "%" : human(upd.done)}`}
+              {upd.s === "installing" && "Установка…"}
+              {upd.s === "error" && "Не удалось проверить обновления"}
+              {upd.s === "idle" && "Обновления"}
+            </div>
+            <div className="value">
+              {upd.s === "available" && upd.notes
+                ? upd.notes.slice(0, 300)
+                : upd.s === "error"
+                  ? upd.msg
+                  : "Версия ставится после подтверждения, приложение перезапустится"}
+            </div>
+          </div>
+          {upd.s === "available" ? (
+            <button className="pill primary" onClick={() => installUpdate()}>Установить</button>
+          ) : (
+            <button
+              className="pill"
+              disabled={upd.s === "checking" || upd.s === "downloading" || upd.s === "installing"}
+              onClick={() => checkForUpdates(false)}
+            >
+              Проверить
+            </button>
+          )}
+        </div>
+        <div className="srow">
+          <div className="grow"><div className="label">Проверять автоматически</div></div>
+          <button
+            role="switch"
+            aria-checked={auto}
+            className={"switch" + (auto ? " on" : "")}
+            onClick={() => { setAutoCheck(!auto); setAuto(!auto); }}
+          />
+        </div>
+        <div className="srow">
+          <div className="grow"><div className="label">Версия LocalDrop</div></div>
+          <code className="value">{ver}</code>
+        </div>
+      </div>
+
       <div className="day">О устройстве</div>
       <div className="group glass">
         <div className="srow">
@@ -260,10 +314,6 @@ export default function SettingsView({ info, notify, onChanged }: Props) {
             <div className="value">Сверяйте его при добавлении устройств</div>
           </div>
           <code className="value">{info?.fpShort}</code>
-        </div>
-        <div className="srow">
-          <div className="grow"><div className="label">Версия LocalDrop</div></div>
-          <code className="value">{ver}</code>
         </div>
       </div>
     </section>
