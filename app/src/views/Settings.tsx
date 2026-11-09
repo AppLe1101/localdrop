@@ -201,7 +201,7 @@ export default function SettingsView({ info, notify, onChanged }: Props) {
             <div className="label">Папка загрузок</div>
             <div className="value">{data.downloadDir}</div>
           </div>
-          <button className="pill" title="Изменить…" onClick={chooseDir}><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 21h8"/><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></svg></button>
+          <button className="pill" title="Изменить…" onClick={chooseDir}><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M13 21h8"/><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></svg></button>
           <button className="pill" onClick={() => setDir("")}>По умолчанию</button>
         </div>
       </div>
@@ -215,8 +215,8 @@ export default function SettingsView({ info, notify, onChanged }: Props) {
           </div>
           <kbd className="kbd">{capturing ? "Нажмите сочетание…" : pretty(data.hotkey)}</kbd>
           <button className="pill" onClick={() => setCapturing((v) => !v)}>{capturing ? "Отмена" : "Изменить"}</button>
-          <button className="pill" title="По умолчанию" onClick={() => saveHotkey(DEFAULT_HOTKEY)}><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button>
-          <button className="pill" title="Отключить" onClick={() => saveHotkey("")}><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+          <button className="pill" title="По умолчанию" onClick={() => saveHotkey(DEFAULT_HOTKEY)}><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button>
+          <button className="pill" title="Отключить" onClick={() => saveHotkey("")}><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
         </div>
       </div>
 

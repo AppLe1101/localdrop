@@ -110,6 +110,8 @@ export function useLocalDrop() {
   const asked = useRef(new Map<number, { name: string; sender: string }>());
   const answered = useRef(new Set<number>());
   const texts = useRef(new Set<number>());
+  const peersRef = useRef<Peer[]>([]);
+  peersRef.current = state.peers;
 
   const dismissToast = useCallback((id: number) => setToasts((l) => l.filter((t) => t.id !== id)), []);
 
@@ -288,20 +290,21 @@ export function useLocalDrop() {
   }, [push]);
 
   const trySend = useCallback(
-    async (run: (allowConflict: boolean) => Promise<SendResult>) => {
+    async (peerId: string, run: (allowConflict: boolean) => Promise<SendResult>) => {
+      const name = peersRef.current.find((p) => p.id === peerId)?.name ?? "Устройство";
       try {
         const res = await run(false);
         if (res.outcome === "nameConflict") {
           dispatch({ kind: "drop", ids: [res.id] });
           meta.current.delete(res.id);
           const ok = await ask(
-            "Устройство с таким именем раньше имело другой отпечаток. Это может быть переустановка приложения, а может быть подмена. Всё равно отправить?",
+            `«${name}»: устройство с таким именем раньше имело другой отпечаток. Это может быть переустановка приложения, а может быть подмена. Всё равно отправить?`,
             { title: "Возможная подмена устройства", kind: "warning" },
           );
           if (ok) await run(true);
         }
       } catch (e) {
-        push({ kind: "error", title: "Не удалось отправить", text: String(e) }, 8000);
+        push({ kind: "error", title: `Не удалось отправить («${name}»)`, text: String(e) }, 8000);
       }
     },
     [push],
@@ -310,15 +313,25 @@ export function useLocalDrop() {
   const sendTo = useCallback(
     (peerId: string, paths: string[]) =>
       paths.length
-        ? trySend((allowConflict) => invoke<SendResult>("send_files", { peerId, paths, allowConflict }))
+        ? trySend(peerId, (allowConflict) => invoke<SendResult>("send_files", { peerId, paths, allowConflict }))
         : Promise.resolve(),
     [trySend],
   );
 
   const sendText = useCallback(
     (peerId: string, text: string) =>
-      trySend((allowConflict) => invoke<SendResult>("send_text", { peerId, text, allowConflict })),
+      trySend(peerId, (allowConflict) => invoke<SendResult>("send_text", { peerId, text, allowConflict })),
     [trySend],
+  );
+
+  const sendToMany = useCallback(
+    (peerIds: string[], paths: string[]) => Promise.all(peerIds.map((id) => sendTo(id, paths))).then(() => {}),
+    [sendTo],
+  );
+
+  const sendTextToMany = useCallback(
+    (peerIds: string[], text: string) => Promise.all(peerIds.map((id) => sendText(id, text))).then(() => {}),
+    [sendText],
   );
 
   const respond = useCallback(
@@ -337,5 +350,6 @@ export function useLocalDrop() {
     invoke<MyInfo>("my_info").then(setInfo).catch(() => {});
   }, []);
 
-  return { ...state, info, toasts, dismissToast, notify: push, refreshInfo, sendTo, sendText, respond, clearFinished };
+  return { ...state, info, toasts, dismissToast, notify: push, 
+    refreshInfo, sendTo, sendText, respond, clearFinished, sendTextToMany, sendToMany };
 }

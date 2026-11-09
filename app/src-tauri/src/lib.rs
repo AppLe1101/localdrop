@@ -14,7 +14,8 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering, AtomicU64};
+//use std::sync::atomic::AtomicU64;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -22,6 +23,7 @@ use tauri::WindowEvent;
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tokio::sync::broadcast::error::RecvError;
+use clipboard_rs::{common::RustImage, Clipboard, ClipboardContext, ContentFormat};
 
 struct TransferMeta {
     direction: Direction,
@@ -539,6 +541,113 @@ fn spawn_watchdog(app: AppHandle) {
     });
 }
 
+#[derive(Default)]
+struct ExternalPaths {
+    list: Mutex<Vec<String>>,
+    generation: AtomicU64,
+}
+
+fn paths_from_args(args: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        if a == "--send" {
+            if let Some(p) = it.next() {
+                out.push(p.clone());
+            }
+        }
+    }
+    out
+}
+
+fn queue_paths(app: &AppHandle, paths: Vec<String>) {
+    if paths.is_empty() {
+        return;
+    }
+    let st = app.state::<ExternalPaths>();
+    st.list.lock().unwrap().extend(paths);
+    let generation = st.generation.fetch_add(1, Ordering::Relaxed) + 1;
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(700)).await;
+        if app.state::<ExternalPaths>().generation.load(Ordering::Relaxed) != generation {
+            return;
+        }
+        show_main(&app);
+        let _ = app.emit("external-files", ());
+    });
+}
+
+#[tauri::command]
+fn take_external_files(app: AppHandle) -> Vec<String> {
+    let st = app.state::<ExternalPaths>();
+    let list: Vec<String> = st.list.lock().unwrap().drain(..).collect();
+    list.into_iter().filter(|p| Path::new(p).exists()).collect()
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ClipData {
+    files: Vec<String>,
+    text: Option<String>,
+}
+
+fn clean_path(s: &str) -> String {
+    let Some(rest) = s.strip_prefix("file://") else { return s.to_string() };
+    let b = rest.as_bytes();
+    let mut o = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() {
+            if let Ok(v) = u8::from_str_radix(std::str::from_utf8(&b[i + 1..i + 3]).unwrap_or("zz"), 16) {
+                o.push(v);
+                i += 3;
+                continue;
+            }
+        }
+        o.push(b[i]);
+        i += 1;
+    }
+    let p = String::from_utf8_lossy(&o).into_owned();
+    // file:///C:/x -> C:/x
+    if p.len() > 2 && p.as_bytes()[0] == b'/' && p.as_bytes()[2] == b':' { p[1..].to_string() } else { p }
+}
+
+fn sweep(dir: &Path) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    for e in rd.flatten() {
+        let old = e.metadata().and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok());
+        if old.map_or(false, |d| d.as_secs() > 86_400) {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
+}
+
+#[tauri::command]
+fn read_clipboard(state: State<'_, AppState>) -> Result<ClipData, String> {
+    let ctx = ClipboardContext::new().map_err(|e| e.to_string())?;
+    let mut out = ClipData { files: Vec::new(), text: None };
+
+    if ctx.has(ContentFormat::Files) {
+        if let Ok(list) = ctx.get_files() {
+            out.files = list.iter().map(|s| clean_path(s)).filter(|p| Path::new(p).exists()).collect();
+        }
+    }
+    if out.files.is_empty() && ctx.has(ContentFormat::Image) {
+        let img = ctx.get_image().map_err(|e| e.to_string())?;
+        let dir = state.data_dir.join("clipboard");
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        sweep(&dir);
+        let path = dir.join(format!("Buffer-{}.png", now_secs()));
+        img.save_to_path(&path.to_string_lossy()).map_err(|e| e.to_string())?;
+        out.files.push(path.display().to_string());
+    }
+    if out.files.is_empty() && ctx.has(ContentFormat::Text) {
+        out.text = ctx.get_text().ok();
+    }
+    Ok(out)
+}
+
 /// Empty row - fallback to default dir
 #[tauri::command]
 fn set_download_dir(path: String, state: State<'_, AppState>) -> Result<String, String> {
@@ -818,9 +927,12 @@ async fn init(app: AppHandle) -> anyhow::Result<AppState> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let mut builder = tauri::Builder::default();
+    let mut builder = tauri::Builder::default().manage(ExternalPaths::default());
     if std::env::var("LOCALDROP_PROFILE").is_err() {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)));
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            let p = paths_from_args(&args);
+            if p.is_empty() {show_main(app)} else {queue_paths(app, p);}
+        }));
     }
     
     builder
@@ -835,6 +947,7 @@ pub fn run() {
             let state = tauri::async_runtime::block_on(init(app.handle().clone()))?;
             app.manage(state);
             spawn_watchdog(app.handle().clone());
+            queue_paths(app.handle(), paths_from_args(&std::env::args().collect::<Vec<_>>()));
             match build_tray(app.handle()) {
                 Ok(()) => TRAY_OK.store(true, Ordering::Relaxed),
                 Err(e) => eprintln!("tray icon creation failed: {e}"),
@@ -900,7 +1013,9 @@ pub fn run() {
             web_receive,
             web_sessions,
             web_close,
-            qr_svg
+            qr_svg,
+            read_clipboard,
+            take_external_files
         ])
         .build(tauri::generate_context!())
         .expect("LocalDrop startup error")

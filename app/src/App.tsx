@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, ReactNode } from "react";
 import type { CSSProperties } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
+import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import { useLocalDrop } from "./useLocalDrop";
 import { baseName, hue, human, initial } from "./format";
 import DevicesView from "./views/Devices";
@@ -24,6 +26,24 @@ const TABS: [View, string][] = [
 
 const C = 2 * Math.PI * 46;
 
+const Ico = ({ children }: { children: ReactNode }) => (
+  <svg className="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    {children}
+  </svg>
+);
+
+const ICON = {
+  file: <><path d="M11.35 22H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v5.35"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M14 19h6"/><path d="M17 16v6"/></>,
+  folder: <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>,
+  text: <><path d="M15 5h6"/><path d="M15 12h6"/><path d="M3 19h18"/><path d="m3 12 3.553-7.724a.5.5 0 0 1 .894 0L11 12"/><path d="M3.92 10h6.16"/></>,
+  transfers: <><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/></>,
+  users: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>,
+  send: <><path d="m15 17 5-5-5-5"/><path d="M4 18v-2a4 4 0 0 1 4-4h12"/></>,
+  close: <><path d="M18 6 6 18"/><path d="m6 6 12 12"/></>,
+  clipboard: <><rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></>,
+};
+
 function place(i: number, n: number) {
   const inner = i < 5;
   const count = inner ? Math.min(n, 5) : n - 5;
@@ -33,8 +53,8 @@ function place(i: number, n: number) {
   return { x: 50 + r * Math.cos(a), y: 50 + r * Math.sin(a) };
 }
 
-function PeerBubble({ peer, pos, hover, transfer, onClick }: {
-  peer: Peer; pos: { x: number; y: number }; hover: boolean; transfer?: Transfer; onClick: () => void;
+function PeerBubble({ peer, pos, hover, transfer, onClick, selectMode, selected }: {
+  peer: Peer; pos: { x: number; y: number }; hover: boolean; transfer?: Transfer; onClick: () => void; selectMode: boolean; selected: boolean;
 }) {
   const frac = transfer && transfer.size > 0 ? transfer.done / transfer.size : 0;
   const waiting = transfer?.status === "waiting" || !!transfer?.awaiting;
@@ -43,7 +63,7 @@ function PeerBubble({ peer, pos, hover, transfer, onClick }: {
     : hover ? "Отпустите, чтобы отправить" : "";
   return (
     <button
-      className={"peer" + (hover ? " hover" : "")}
+      className={"peer" + (hover ? " hover" : "") + (selectMode ? " selectable" : "") + (selected ? " picked" : "")}
       data-peer-id={peer.id}
       style={{ left: `${pos.x}%`, top: `${pos.y}%` }}
       onClick={onClick}
@@ -52,6 +72,7 @@ function PeerBubble({ peer, pos, hover, transfer, onClick }: {
         <span className="avatar" style={{ "--h": hue(peer.name) } as CSSProperties}>
           {initial(peer.name)}
         </span>
+        {selectMode && <span className="check">{selected ? "✓" : ""}</span>}
         {transfer && (
           <svg className={"ring" + (waiting ? " spin" : "")} viewBox="0 0 100 100">
             <circle cx="50" cy="50" r="46" className="ring-bg" />
@@ -83,8 +104,8 @@ function TransferRow({ t }: { t: Transfer }) {
   return (
     <li className={"t-row " + t.status}>
       <span className={`t-icon ${t.direction === "send" ? "t-icon-send" : "t-icon-receive"}`}>{t.direction === "send" ? 
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>
-       : <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>}</span>
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>
+       : <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>}</span>
       <div className="t-main">
         <div className="t-top">
           <span className="t-name">{t.name}</span>
@@ -124,7 +145,7 @@ function Countdown({ expiresAt, total }: { expiresAt: number; total: number }) {
 export default function App() {
   const {
     peers, incoming, transfers, info, toasts, dismissToast, notify, refreshInfo,
-    sendTo, sendText, respond, clearFinished,
+    sendTo, sendText, respond, clearFinished, sendTextToMany, sendToMany
   } = useLocalDrop();
   const [stagedText, setStagedText] = useState<string | null>(null);
   const [composing, setComposing] = useState(false);
@@ -138,10 +159,44 @@ export default function App() {
   const [scrolled, setScrolled] = useState(false);
   const [focused, setFocused] = useState(true);
 
+  const [multi, setMulti] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+  const multiRef = useRef(false);
+  multiRef.current = multi;
+
   const viewRef = useRef(view);
   viewRef.current = view;
 
+  const hasStaged = staged.length > 0 || stagedText !== null;
+  const stagedLabel =
+    staged.length > 0
+      ? `${staged.length} ${staged.length === 1 ? "объект" : "объектов"}: ${baseName(staged[0])}${staged.length > 1 ? "..." : ""}`
+      : stagedText !== null
+        ? `Текст: «${stagedText.trim().slice(0, 40)}${stagedText.trim().length > 40 ? "..." : ""}»`
+        : "";
+
+  const pasteFromClipboard = useCallback(async () => {
+    try {
+      const c = await invoke<{ files: string[]; text: string | null }>("read_clipboard");
+      if (c.files.length) {
+        setStagedText(null);
+        setStaged((s) => [...new Set([...s, ...c.files])]);
+      } else if (c.text?.trim()) {
+        setStaged([]);
+        setStagedText(c.text);
+      } else {
+        notify({ kind: "info", title: "Буфер обмена пуст", text: "Скопируйте файл, изображение или текст" }, 3000);
+      }
+    } catch (e) {
+      notify({ kind: "error", title: "Не удалось прочитать буфер", text: String(e) }, 6000);
+    }
+  }, [notify]);
+
   useEffect(() => setScrolled(false), [view]);
+
+  useEffect(() => {
+    setSelected((s) => s.filter((id) => peers.some((p) => p.id === id)));
+  }, [peers]);
 
   useEffect(() => {
     const on = () => setFocused(true);
@@ -177,7 +232,7 @@ export default function App() {
         } else if (p.type === "over") {
           setHover(peerAt(p.position));
         } else if (p.type === "drop") {
-          const target = peerAt(p.position);
+          const target = multiRef.current ? null : peerAt(p.position);
           setDragging(false);
           setHover(null);
           if (target) sendTo(target, p.paths);
@@ -194,24 +249,48 @@ export default function App() {
     };
   }, [sendTo]);
 
+  // Paste
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
       if (viewRef.current !== "radar") return;
       const el = e.target as HTMLElement | null;
       if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
-      const text = e.clipboardData?.getData("text/plain");
-      if (text && text.trim()) {
-        e.preventDefault();
+      e.preventDefault();
+      const dt = e.clipboardData;
+      const hasFiles = !!dt && (dt.files.length > 0 || dt.types.includes("Files"));
+      const text = dt?.getData("text/plain");
+      if (!hasFiles && text && text.trim()) {
         setStaged([]);
         setStagedText(text);
+      } else {
+        pasteFromClipboard();
       }
     };
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
-  }, []);
+  }, [pasteFromClipboard]);
 
+  useEffect(() => {
+    let alive = true;
+    let un: (() => void) | undefined;
+    const take = async () => {
+      const paths = await invoke<string[]>("take_external_files").catch(() => [] as string[]);
+      if (!alive || !paths.length) return;
+      setView("radar");
+      setStagedText(null);
+      setStaged((s) => [...new Set([...s, ...paths])]);
+      notify({ kind: "info", title: `Подготовлено объектов: ${paths.length}`, text: "Выберите устройство на радаре" }, 5000);
+    };
+    take();
+    listen("external-files", take).then((u) => (alive ? (un = u) : u()));
+    return () => {
+      alive = false;
+      un?.();
+    };
+  }, [notify]);
+
+  // Updates timer
   const upd = useUpdater();
-
   useEffect(() => {
     if (!getAutoCheck()) return;
     const first = setTimeout(() => checkForUpdates(true), 8000);
@@ -222,6 +301,7 @@ export default function App() {
     };
   }, []);
 
+  // Update
   const toldVersion = useRef("");
   useEffect(() => {
     if (upd.s === "available" && toldVersion.current !== upd.version) {
@@ -248,7 +328,20 @@ export default function App() {
     return Array.isArray(r) ? r : r ? [r] : [];
   }, []);
 
+  const clearStaged = () => {
+    setStaged([]);
+    setStagedText(null);
+  };
+
+  const addFiles = async (picker: () => Promise<string[]>) => {
+    const f = await picker();
+    if (!f.length) return;
+    setStagedText(null);
+    setStaged((s) => [...new Set([...s, ...f])]);
+  };
+
   const onPeerClick = async (peer: Peer) => {
+    if (multi) return toggle(peer.id);
     if (stagedText !== null) {
       const t = stagedText;
       setStagedText(null);
@@ -262,9 +355,33 @@ export default function App() {
     }
   };
 
+  const toggle = (id: string) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+  const exitMulti = () => {
+    setMulti(false);
+    setSelected([]);
+  };
+  const allSelected = peers.length > 0 && selected.length === peers.length;
+
+  const sendSelected = async () => {
+    const ids = selected;
+    if (!ids.length) return;
+    if (stagedText !== null) {
+      const t = stagedText;
+      setStagedText(null);
+      exitMulti();
+      await sendTextToMany(ids, t);
+      return;
+    }
+    const files = staged.length ? staged : await pickFiles();
+    if (!files.length) return;
+    setStaged([]);
+    exitMulti();
+    await sendToMany(ids, files);
+  };
+
   const active = transfers.filter((t) => t.status === "waiting" || t.status === "active");
   const activeFor = (peerId: string) => active.find((t) => t.peerId === peerId);
-  const waitingCode = transfers.find((t) => t.awaiting && t.code);
+  //const waitingCode = transfers.find((t) => t.awaiting && t.code);
   const cur = incoming[0];
 
   return (
@@ -282,13 +399,13 @@ export default function App() {
       />
 
       <div className="toasts">
-        {waitingCode && (
-          <div className="toast glass code-toast">
-            <small>Ждём подтверждения от «{waitingCode.peerName ?? "устройства"}»</small>
-            <span className="code-big">{waitingCode.code}</span>
+        {transfers.filter((t) => t.awaiting && t.code).map((t) => (
+          <div key={t.id} className="toast glass code-toast">
+            <small>Ждём подтверждения от «{t.peerName ?? "устройства"}»</small>
+            <span className="code-big">{t.code}</span>
             <small>Код должен совпадать с кодом на экране получателя. Если нет, попросите его отклонить передачу.</small>
           </div>
-        )}
+        ))}
         {dragging && (
           <div className="toast glass">
             <span className="t-dot" />
@@ -337,6 +454,8 @@ export default function App() {
                   hover={hover === p.id}
                   transfer={activeFor(p.id)}
                   onClick={() => onPeerClick(p)}
+                  selectMode={multi}
+                  selected={selected.includes(p.id)}
                 />
               ))}
 
@@ -349,38 +468,65 @@ export default function App() {
             </div>
           </section>
 
-          <footer className="dock glass">
-            {staged.length > 0 ? (
+          <footer className={"dock glass" + (multi || hasStaged ? " multi" : "")}>
+            {hasStaged && (
+              <span className="staged-chip">
+                <span className="chip-text">{stagedLabel}</span>
+                <button className="chip-x" title="Очистить" aria-label="Очистить" onClick={clearStaged}>
+                  <Ico>{ICON.close}</Ico>
+                </button>
+              </span>
+            )}
+
+            <span className="dock-text hint">
+              {multi
+                ? selected.length
+                  ? `Выбрано: ${selected.length} из ${peers.length}`
+                  : "Выберите устройства"
+                : hasStaged
+                  ? "выберите устройство"
+                  : "Перетащите файл или папку, либо вставьте текст (Ctrl+V)"}
+            </span>
+
+            {multi ? (
               <>
-                <span className="dock-text">
-                  {staged.length} {staged.length === 1 ? "объект" : "объектов"}: {staged.map(baseName).slice(0, 1).join("")}
-                  {staged.length > 1 ? "…" : ""} - выберите устройство
-                </span>
-                <button className="pill" onClick={() => setStaged([])}>Очистить</button>
-              </>
-            ) : stagedText !== null ? (
-              <>
-                <span className="dock-text">
-                  Текст: «{stagedText.trim().slice(0, 40)}{stagedText.trim().length > 40 ? "…" : ""}» - выберите устройство
-                </span>
-                <button className="pill" onClick={() => setStagedText(null)}>Очистить</button>
+                <button className="pill" onClick={() => setSelected(allSelected ? [] : peers.map((p) => p.id))}>
+                  {allSelected ? "Снять все" : "Выбрать все"}
+                </button>
+                <button className="pill primary" disabled={!selected.length} onClick={sendSelected}>
+                  <Ico>{ICON.send}</Ico><span className="pill-text">Отправить</span>
+                </button>
+                <button className="pill" onClick={exitMulti}>Отмена</button>
               </>
             ) : (
               <>
-                <span className="dock-text hint">Перетащите файл или папку, либо вставьте текст (Ctrl+V)</span>
-                <button className="pill" title="Файлы" aria-label="Файлы" onClick={async () => { const f = await pickFiles(); if (f.length) setStaged(f); }}>
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.35 22H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v5.35"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M14 19h6"/><path d="M17 16v6"/></svg>
+                {peers.length > 1 && (
+                  <button className="pill" title="Выбрать несколько устройств" aria-label="Выбрать несколько устройств" onClick={() => setMulti(true)}>
+                    <Ico>{ICON.users}</Ico>
+                  </button>
+                )}
+                <button className="pill" title="Файлы" aria-label="Файлы" onClick={() => addFiles(pickFiles)}>
+                  <Ico>{ICON.file}</Ico>
                 </button>
-                <button className="pill" title="Папка" aria-label="Папка" onClick={async () => { const f = await pickFolder(); if (f.length) setStaged(f); }}>
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+                <button className="pill" title="Папка" aria-label="Папка" onClick={() => addFiles(pickFolder)}>
+                  <Ico>{ICON.folder}</Ico>
                 </button>
                 <button className="pill" title="Текст" aria-label="Текст" onClick={() => { setDraft(""); setComposing(true); }}>
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5h6"/><path d="M15 12h6"/><path d="M3 19h18"/><path d="m3 12 3.553-7.724a.5.5 0 0 1 .894 0L11 12"/><path d="M3.92 10h6.16"/></svg>
+                  <Ico>{ICON.text}</Ico>
+                </button>
+                <button className="pill" title="Вставить из буфера" aria-label="Вставить из буфера" onClick={pasteFromClipboard}>
+                  <Ico>{ICON.clipboard}</Ico>
                 </button>
               </>
             )}
-            <button style={{padding: "8px 12px"}} className={"pill" + (sheet ? " primary" : "")} onClick={() => setSheet((v) => !v)}>
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/></svg>
+
+            <button
+              className={"pill" + (sheet ? " primary" : "")}
+              title="Передачи"
+              aria-label="Передачи"
+              onClick={() => setSheet((v) => !v)}
+            >
+              <Ico>{ICON.transfers}</Ico>
               <span className="pill-text">Передачи</span>
               {active.length > 0 && <span className="badge">{active.length}</span>}
             </button>
