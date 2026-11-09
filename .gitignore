@@ -1,6 +1,10 @@
 target/
 node_modules/
 dist/
+ios/Generated/
+ios/LocalDropCore.xcframework/
+ios/LocalDrop/build/
+xcuserdata/
 .DS_Store
 Thumbs.db
 downloads/

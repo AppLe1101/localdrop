@@ -1,0 +1,26 @@
+[package]
+name = "ld-ffi"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "ld_ffi"
+crate-type = ["staticlib", "lib"]
+
+[features]
+cli = ["uniffi/cli"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["cli"]
+
+[dependencies]
+ld-core = { path = "../ld-core" }
+ld-crypto = { path = "../ld-crypto" }
+ld-transport = { path = "../ld-transport" }
+uniffi = "0.28"
+tokio = { workspace = true }
+quinn = { workspace = true }
+anyhow = { workspace = true }
+thiserror = "1"

@@ -12,7 +12,7 @@ use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -508,6 +508,37 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+fn now_secs() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+fn spawn_watchdog(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let mut last = now_secs();
+        let mut ips = ld_web::lan_ips();
+        let mut tick = tokio::time::interval(Duration::from_secs(5));
+        loop {
+            tick.tick().await;
+            let now = now_secs();
+            let slept = now.saturating_sub(last) > 15;
+            last = now;
+            let cur = ld_web::lan_ips();
+            let changed = cur != ips;
+            ips = cur;
+            if !(slept || changed) {
+                continue;
+            }
+            tokio::time::sleep(Duration::from_secs(3)).await;
+            ips = ld_web::lan_ips();
+            if let Some(s) = app.try_state::<AppState>() {
+                if let Err(e) = s.discovery.restart() {
+                    eprintln!("не удалось перезапустить обнаружение: {e:#}");
+                }
+            }
+        }
+    });
+}
+
 /// Empty row - fallback to default dir
 #[tauri::command]
 fn set_download_dir(path: String, state: State<'_, AppState>) -> Result<String, String> {
@@ -757,6 +788,12 @@ async fn init(app: AppHandle) -> anyhow::Result<AppState> {
                             }
                         });
                     }
+                    DiscoveryEvent::Reset => {
+                        let ids: Vec<String> = peers.lock().unwrap().drain().map(|(k, _)| k).collect();
+                        for id in ids {
+                            let _ = app.emit("peer-lost", id);
+                        }
+                    }
                 }
             }
         });
@@ -797,6 +834,7 @@ pub fn run() {
         .setup(|app| {
             let state = tauri::async_runtime::block_on(init(app.handle().clone()))?;
             app.manage(state);
+            spawn_watchdog(app.handle().clone());
             match build_tray(app.handle()) {
                 Ok(()) => TRAY_OK.store(true, Ordering::Relaxed),
                 Err(e) => eprintln!("tray icon creation failed: {e}"),
