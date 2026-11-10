@@ -12,3 +12,4 @@ downloads/
 *.db-wal
 *.db-shm
 .env
+README.md

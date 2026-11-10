@@ -22,6 +22,7 @@ pub struct Record {
     pub path: Option<String>,
     pub error: Option<String>,
     pub text: Option<String>,
+    pub batch: Option<String>
 }
 
 pub struct NewRecord {
@@ -33,6 +34,7 @@ pub struct NewRecord {
     pub path: Option<String>,
     pub error: Option<String>,
     pub text: Option<String>,
+    pub batch: Option<String>
 }
 
 pub struct History {
@@ -54,10 +56,11 @@ impl History {
                  status    TEXT NOT NULL,
                  path      TEXT,
                  error     TEXT,
-                 text      TEXT
+                 text      TEXT,
+                 batch     TEXT
              );",
         )?;
-        //let _ = conn.execute("ALTER TABLE history ADD COLUMN text TEXT", []);
+        //let _ = conn.execute("ALTER TABLE history ADD COLUMN batch TEXT", []);
         Ok(Self { conn: Mutex::new(conn) })
     }
 
@@ -68,9 +71,9 @@ impl History {
             .unwrap_or(0);
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO history (ts, direction, name, size, peer, status, path, error, text)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            params![ts, r.direction, r.name, r.size as i64, r.peer, r.status, r.path, r.error, r.text],
+            "INSERT INTO history (ts, direction, name, size, peer, status, path, error, text, batch)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![ts, r.direction, r.name, r.size as i64, r.peer, r.status, r.path, r.error, r.text, r.batch],
         )?;
         conn.execute(
             "DELETE FROM history WHERE id NOT IN (SELECT id FROM history ORDER BY id DESC LIMIT ?1)",
@@ -82,7 +85,7 @@ impl History {
     pub fn list(&self, limit: u32) -> Result<Vec<Record>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, ts, direction, name, size, peer, status, path, error, text
+            "SELECT id, ts, direction, name, size, peer, status, path, error, text, batch
             FROM history ORDER BY id DESC LIMIT ?1",
         )?;
         let rows = stmt.query_map(params![limit], |row| {
@@ -97,6 +100,7 @@ impl History {
                 path: row.get(7)?,
                 error: row.get(8)?,
                 text: row.get(9)?,
+                batch: row.get(10)?
             })
         })?;
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)

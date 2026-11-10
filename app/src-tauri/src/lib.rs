@@ -30,7 +30,8 @@ struct TransferMeta {
     name: String,
     size: u64,
     peer: String,
-    text: Option<String>
+    text: Option<String>,
+    batch: Option<String>,
 }
 
 struct AppState {
@@ -156,6 +157,7 @@ async fn run_send(
     label: String,
     text: Option<String>,
     allow_conflict: bool,
+    batch: Option<String>
 ) -> Result<SendResult, String> {
     let peer = state
         .peers
@@ -174,7 +176,7 @@ async fn run_send(
     let id = state.core.next_id();
     state.meta.lock().unwrap().insert(
         id,
-        TransferMeta { direction: Direction::Send, name: label.clone(), size: 0, peer: peer.name.clone(), text },
+        TransferMeta { direction: Direction::Send, name: label.clone(), size: 0, peer: peer.name.clone(), text, batch },
     );
     let _ = app.emit("send-queued", Queued { id, peer_id, name: label });
 
@@ -201,6 +203,7 @@ async fn send_files(
     peer_id: String,
     paths: Vec<String>,
     allow_conflict: bool,
+    batch: Option<String>
 ) -> Result<SendResult, String> {
     if paths.is_empty() {
         return Err("Nothing to send".into());
@@ -211,7 +214,7 @@ async fn send_files(
         format!("Items: {}", paths.len())
     };
     let payload = Payload::Paths(paths.into_iter().map(PathBuf::from).collect());
-    run_send(&app, &state, peer_id, payload, label, None, allow_conflict).await
+    run_send(&app, &state, peer_id, payload, label, None, allow_conflict, batch).await
 }
 
 #[tauri::command]
@@ -221,11 +224,12 @@ async fn send_text(
     peer_id: String,
     text: String,
     allow_conflict: bool,
+    batch: Option<String>
 ) -> Result<SendResult, String> {
     if text.trim().is_empty() {
         return Err("Text is empty".into());
     }
-    run_send(&app, &state, peer_id, Payload::Text(text.clone()), "Text".into(), Some(text), allow_conflict).await
+    run_send(&app, &state, peer_id, Payload::Text(text.clone()), "Text".into(), Some(text), allow_conflict, batch).await
 }
 
 // COMMANDS: DEVICES
@@ -674,14 +678,15 @@ fn record(history: &History, meta: &Mutex<HashMap<u64, TransferMeta>>, app: &App
                     size: *size,
                     peer: known_name.clone().unwrap_or_else(|| sender.clone()),
                     text: None,
+                    batch: None,
                 },
             );
         }
         Event::Started { id, direction, name, size, peer_name } => {
-            let text = m.get(id).and_then(|t| t.text.clone());
+            let (text, batch) = m.get(id).map(|t| (t.text.clone(), t.batch.clone())).unwrap_or((None, None));
             m.insert(
                 *id,
-                TransferMeta { direction: *direction, name: name.clone(), size: *size, peer: peer_name.clone(), text },
+                TransferMeta { direction: *direction, name: name.clone(), size: *size, peer: peer_name.clone(), text, batch },
             );
         }
         Event::TextReceived { id, text } => {
@@ -725,6 +730,7 @@ fn record_web(history: &History, app: &AppHandle, e: &ld_web::WebEvent) {
             path: None,
             error: None,
             text: None,
+            batch: None,
         },
         ld_web::WebEvent::Uploaded { name, size, ip, path, .. } => NewRecord {
             direction: "receive".into(),
@@ -735,6 +741,7 @@ fn record_web(history: &History, app: &AppHandle, e: &ld_web::WebEvent) {
             path: Some(path.clone()),
             error: None,
             text: None,
+            batch: None,
         },
         _ => return,
     };
@@ -757,7 +764,13 @@ fn make_record(t: TransferMeta, status: &str, path: Option<String>, error: Optio
         path,
         error,
         text: t.text,
+        batch: t.batch
     }
+}
+
+#[tauri::command]
+fn save_file(path: String, data: Vec<u8>) -> Result<(), String> {
+    std::fs::write(&path, data).map_err(|e| format!("Не удалось сохранить: {e}"))
 }
 
 // INITIALIZE
@@ -1015,7 +1028,8 @@ pub fn run() {
             web_close,
             qr_svg,
             read_clipboard,
-            take_external_files
+            take_external_files,
+            save_file
         ])
         .build(tauri::generate_context!())
         .expect("LocalDrop startup error")

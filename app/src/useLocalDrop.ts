@@ -13,6 +13,12 @@ export interface Toast {
   title: string;
   text?: string;
   action?: { label: string; run: () => void };
+  key?: string;
+  groupTitle?: string;
+  names?: string[];
+  namesLabel?: string;
+  count?: number;
+  ttl?: number;
 }
 
 interface State { peers: Peer[]; incoming: Incoming[]; transfers: Transfer[] }
@@ -88,8 +94,13 @@ function reducer(s: State, a: Action): State {
   }
 }
 
-async function systemNotify(title: string, body: string) {
+let lastSys = 0;
+async function systemNotify(title: string, body: string, throttle = true) {
   if (document.hasFocus()) return;
+  if (throttle) {
+    if (Date.now() - lastSys < 3000) return;
+    lastSys = Date.now();
+  }
   try {
     let ok = await isPermissionGranted();
     if (!ok) ok = (await requestPermission()) === "granted";
@@ -105,6 +116,8 @@ export function useLocalDrop() {
   const [state, dispatch] = useReducer(reducer, { peers: [], incoming: [], transfers: [] });
   const [info, setInfo] = useState<MyInfo | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const toastsRef = useRef<Toast[]>([]);
+  const timers = useRef(new Map<number, number>());
   const seq = useRef(1);
   const meta = useRef(new Map<number, Meta>());
   const asked = useRef(new Map<number, { name: string; sender: string }>());
@@ -113,13 +126,38 @@ export function useLocalDrop() {
   const peersRef = useRef<Peer[]>([]);
   peersRef.current = state.peers;
 
-  const dismissToast = useCallback((id: number) => setToasts((l) => l.filter((t) => t.id !== id)), []);
+  const commit = useCallback((l: Toast[]) => {
+    toastsRef.current = l;
+    setToasts(l);
+  }, []);
+
+  const dismissToast = useCallback((id: number) => {
+    window.clearTimeout(timers.current.get(id));
+    timers.current.delete(id);
+    commit(toastsRef.current.filter((t) => t.id !== id));
+  }, [commit]);
 
   const push = useCallback((t: Omit<Toast, "id">, ttl = 4500) => {
-    const id = seq.current++;
-    setToasts((l) => [...l.slice(-3), { ...t, id }]);
-    if (ttl > 0) setTimeout(() => setToasts((l) => l.filter((x) => x.id !== id)), ttl);
-  }, []);
+    const arm = (id: number) => {
+      window.clearTimeout(timers.current.get(id));
+      if (ttl > 0) timers.current.set(id, window.setTimeout(() => dismissToast(id), ttl));
+    };
+    const cur = toastsRef.current;
+    const ex = t.key ? cur.find((x) => x.key === t.key) : undefined;
+    if (ex) {
+      const merged: Toast = {
+        ...ex, ...t, id: ex.id, ttl,
+        count: (ex.count ?? 1) + 1,
+        names: [...(ex.names ?? []), ...(t.names ?? [])],
+      };
+      commit(cur.map((x) => (x.id === ex.id ? merged : x)));
+      arm(ex.id);
+    } else {
+      const id = seq.current++;
+      commit([...cur.slice(-2), { ...t, id, ttl, count: 1, names: t.names ?? [] }]);
+      arm(id);
+    }
+  }, [commit, dismissToast]);
 
   useEffect(() => {
     let alive = true;
@@ -141,13 +179,17 @@ export function useLocalDrop() {
           systemNotify(
             `${who} хочет отправить ${e.kind === "text" ? "текст" : "файл"}`,
             e.kind === "text" ? clip(e.preview ?? "", 100) : `${e.name} • ${human(e.size)}`,
+            false,
           );
           break;
         }
         case "started": {
           meta.current.set(e.id, { direction: e.direction, name: e.name, peerName: e.peerName });
           if (e.direction === "receive" && !asked.current.has(e.id)) {
-            push({ kind: "info", title: "Автоприём", text: `${e.name} • от ${e.peerName} (доверенное устройство)` });
+            push({
+              kind: "info", key: "auto", title: "Автоприём", groupTitle: "Автоприём: {n}",
+              text: `${e.name} • от ${e.peerName}`, names: [e.peerName], namesLabel: "От",
+            });
             systemNotify("Входящая передача", `${e.name} • от ${e.peerName}`);
           }
           asked.current.delete(e.id);
@@ -159,8 +201,7 @@ export function useLocalDrop() {
           const from = meta.current.get(e.id)?.peerName ?? "устройства";
           push(
             {
-              kind: "success",
-              title: "Текст получен",
+              kind: "success", title: "Текст получен",
               text: `от ${from}: ${clip(e.text.replace(/\s+/g, " "), 100)}`,
               action: { label: "Копировать", run: () => navigator.clipboard.writeText(e.text).catch(() => {}) },
             },
@@ -174,21 +215,24 @@ export function useLocalDrop() {
           const wasText = texts.current.has(e.id);
           forget(e.id);
           if (!m) break;
+          const peer = m.peerName ?? "устройства";
           if (m.direction === "receive") {
             if (wasText) break;
             const path = e.path;
             push(
               {
-                kind: "success",
-                title: "Получено",
-                text: `${m.name} • от ${m.peerName ?? "устройства"}`,
+                kind: "success", key: "received", title: "Получено", groupTitle: "Получено: {n}",
+                text: `${m.name} • от ${peer}`, names: [peer], namesLabel: "От",
                 action: path ? { label: "Показать", run: () => revealItemInDir(path).catch(() => {}) } : undefined,
               },
               7000,
             );
-            systemNotify("Получено", `${m.name} • от ${m.peerName ?? "устройства"}`);
+            systemNotify("Получено", `${m.name} • от ${peer}`);
           } else {
-            push({ kind: "success", title: "Отправлено", text: `${m.name} → ${m.peerName ?? "устройство"}` });
+            push({
+              kind: "success", key: "sent", title: "Отправлено", groupTitle: "Отправлено: {n}",
+              text: `${m.name} → ${peer}`, names: [peer], namesLabel: "Кому",
+            });
           }
           break;
         }
@@ -198,10 +242,21 @@ export function useLocalDrop() {
           const timedOut = q && !answered.current.has(e.id);
           forget(e.id);
           if (timedOut) {
-            push({ kind: "warn", title: "Запрос не принят", text: `${q.sender}: ${q.name} - время вышло или отправитель отменил` }, 6000);
+            push(
+              {
+                kind: "warn", key: "timeout", title: "Запрос не принят", groupTitle: "Запросов не принято: {n}",
+                text: `${q.sender}: ${q.name} — время вышло или отправитель отменил`,
+                names: [q.sender], namesLabel: "От",
+              },
+              6000,
+            );
           }
           if (m?.direction === "send") {
-            push({ kind: "warn", title: "Отклонено", text: `${m.peerName ?? "Получатель"} не принял «${m.name}»` });
+            const peer = m.peerName ?? "Получатель";
+            push({
+              kind: "warn", key: "rejected", title: "Отклонено", groupTitle: "Отклонено: {n}",
+              text: `${peer} не принял «${m.name}»`, names: [peer], namesLabel: "Отклонили",
+            });
           }
           break;
         }
@@ -209,10 +264,12 @@ export function useLocalDrop() {
           const m = meta.current.get(e.id);
           forget(e.id);
           if (m) {
+            const send = m.direction === "send";
             push(
               {
-                kind: "error",
-                title: m.direction === "send" ? "Не удалось отправить" : "Ошибка приёма",
+                kind: "error", key: send ? "fail-send" : "fail-recv",
+                title: send ? "Не удалось отправить" : "Ошибка приёма",
+                groupTitle: send ? "Не удалось отправить: {n}" : "Ошибок приёма: {n}",
                 text: `${m.name}: ${e.error}`,
               },
               8000,
@@ -241,12 +298,14 @@ export function useLocalDrop() {
         reg(listen<WebEvent>("web-event", (ev) => {
           const e = ev.payload;
           if (e.type === "downloaded") {
-            push({ kind: "success", title: "Файл скачан", text: `${e.name} → браузер (${e.ip})` });
+            push({ kind: "success", key: "web-dl", title: "Файл скачан", groupTitle: "Скачано файлов: {n}", text: `${e.name} -> браузер (${e.ip})` });
           } else if (e.type === "uploaded") {
             push(
               {
                 kind: "success",
                 title: "Получено из браузера",
+                key: "web-up",
+                groupTitle: "Получено из браузера: {n}",
                 text: `${e.name} • ${human(e.size)} • ${e.ip}`,
                 action: { label: "Показать", run: () => revealItemInDir(e.path).catch(() => {}) },
               },
@@ -311,26 +370,32 @@ export function useLocalDrop() {
   );
 
   const sendTo = useCallback(
-    (peerId: string, paths: string[]) =>
+    (peerId: string, paths: string[], batch?: string) =>
       paths.length
-        ? trySend(peerId, (allowConflict) => invoke<SendResult>("send_files", { peerId, paths, allowConflict }))
+        ? trySend(peerId, (allowConflict) => invoke<SendResult>("send_files", { peerId, paths, allowConflict, batch: batch ?? null }))
         : Promise.resolve(),
     [trySend],
   );
 
   const sendText = useCallback(
-    (peerId: string, text: string) =>
-      trySend(peerId, (allowConflict) => invoke<SendResult>("send_text", { peerId, text, allowConflict })),
+    (peerId: string, text: string, batch?: string) =>
+      trySend(peerId, (allowConflict) => invoke<SendResult>("send_text", { peerId, text, allowConflict, batch: batch ?? null })),
     [trySend],
   );
 
   const sendToMany = useCallback(
-    (peerIds: string[], paths: string[]) => Promise.all(peerIds.map((id) => sendTo(id, paths))).then(() => {}),
+    (peerIds: string[], paths: string[]) => {
+      const batch = peerIds.length > 1 ? crypto.randomUUID() : undefined;
+      return Promise.all(peerIds.map((id) => sendTo(id, paths, batch))).then(() => {});
+    },
     [sendTo],
   );
 
   const sendTextToMany = useCallback(
-    (peerIds: string[], text: string) => Promise.all(peerIds.map((id) => sendText(id, text))).then(() => {}),
+    (peerIds: string[], text: string) => {
+      const batch = peerIds.length > 1 ? crypto.randomUUID() : undefined;
+      return Promise.all(peerIds.map((id) => sendText(id, text, batch))).then(() => {});
+    },
     [sendText],
   );
 

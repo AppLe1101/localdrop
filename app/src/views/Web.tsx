@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import { human } from "../format";
 import PinPad from "../components/PinPad";
 import type { Toast } from "../useLocalDrop";
 import type { WebSession } from "../types";
+import { canvasBlob, renderQrCard } from "../qrcard";
 
 type Notify = (t: Omit<Toast, "id">, ttl?: number) => void;
 
@@ -28,7 +29,87 @@ function Seg<T>({ value, options, onChange }: {
 
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
-function Card({ s, onClose, notify }: { s: WebSession; onClose: () => void; notify: Notify }) {
+function ShareDialog({ s, url, onClose, notify }: {
+  s: WebSession; url: string; onClose: () => void; notify: Notify;
+}) {
+  const cv = useRef<HTMLCanvasElement | null>(null);
+  const [img, setImg] = useState("");
+  const [err, setErr] = useState("");
+  const canShare = typeof navigator.canShare === "function" && typeof navigator.share === "function";
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const svg = await invoke<string>("qr_svg", { text: url });
+        const c = await renderQrCard({
+          svg,
+          title: s.title,
+          subtitle: s.kind === "share" ? `Файлов: ${s.files} • ${human(s.totalSize)}` : "Загрузка файлов с телефона",
+          expiresAt: s.expiresAt,
+          pin: !!s.pin,
+        });
+        if (!alive) return;
+        cv.current = c;
+        setImg(c.toDataURL("image/png"));
+      } catch (e) {
+        if (alive) setErr(String(e));
+      }
+    })();
+    return () => { alive = false; };
+  }, [url, s.title, s.expiresAt, s.pin, s.kind, s.files, s.totalSize]);
+
+  const blob = () => canvasBlob(cv.current!);
+  const done = (title: string) => notify({ kind: "success", title }, 2000);
+  const fail = (title: string) => (e: unknown) => notify({ kind: "error", title, text: String(e) }, 6000);
+
+  const copyImage = () =>
+    blob()
+      .then((b) => navigator.clipboard.write([new ClipboardItem({ "image/png": b })]))
+      .then(() => done("Изображение скопировано"))
+      .catch(fail("Не удалось скопировать изображение"));
+
+  const saveImage = async () => {
+    try {
+      const path = await save({ defaultPath: "LocalDrop-QR.png", filters: [{ name: "PNG", extensions: ["png"] }] });
+      if (!path) return;
+      const data = Array.from(new Uint8Array(await (await blob()).arrayBuffer()));
+      await invoke("save_file", { path, data });
+      done("Изображение сохранено");
+    } catch (e) {
+      fail("Не удалось сохранить")(e);
+    }
+  };
+
+  const systemShare = async () => {
+    try {
+      const file = new File([await blob()], "LocalDrop-QR.png", { type: "image/png" });
+      await navigator.share({ files: [file], text: url });
+    } catch (e) {
+      if ((e as Error)?.name !== "AbortError") fail("Не удалось поделиться")(e);
+    }
+  };
+
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="card glass strong share-card" onClick={(e) => e.stopPropagation()}>
+        <h2 className="share-card-header">Поделиться ссылкой</h2>
+        {err ? <p className="err">{err}</p> : img ? <img className="qr-preview" src={img} alt="QR-код ссылки" /> : <p className="hint">Готовим изображение…</p>}
+        <div className="actions">
+          <h2 className="actions-header">Поделиться ссылкой</h2>
+          <button className="pill primary lg" disabled={!img} onClick={copyImage}>Копировать изображение</button>
+          <button className="pill lg" disabled={!img} onClick={saveImage}>Сохранить как PNG…</button>
+          {canShare && <button className="pill lg" disabled={!img} onClick={systemShare}>Отправить через систему…</button>}
+          <button className="pill lg" onClick={() =>
+            navigator.clipboard.writeText(url).then(() => done("Ссылка скопирована"))}>Копировать ссылку</button>
+          <button className="pill lg" onClick={onClose}>Закрыть</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Card({ s, onClose, onShare, notify }: { s: WebSession; onClose: () => void; onShare: (url: string) => void; notify: Notify }) {
   const [hi, setHi] = useState(0);
   const [svg, setSvg] = useState("");
   const [now, setNow] = useState(Date.now());
@@ -96,7 +177,10 @@ function Card({ s, onClose, notify }: { s: WebSession; onClose: () => void; noti
         <small className="hint">{stats}</small>
         <div className="wfoot">
           <span className={"hint" + (left < 60 ? " low" : "")}>Осталось {clock(left)}</span>
-          <button className="pill danger" onClick={onClose}>Закрыть сейчас</button>
+          <span className="wbtns">
+            {url && <button className="pill" onClick={() => onShare(url)}>Поделиться</button>}
+            <button className="pill danger" onClick={onClose}>Закрыть сейчас</button>
+          </span>
         </div>
       </div>
     </div>
@@ -110,6 +194,8 @@ export default function WebView({ notify }: { notify: Notify }) {
   const [size, setSize] = useState<number | null>(10240);
   const [pinLen, setPinLen] = useState(0);
   const [padResolve, setPadResolve] = useState<((v: string | null) => void) | null>(null);
+  const [sharing, setSharing] = useState<{ id: string; url: string } | null>(null);
+  const sharedSession = sessions?.find((x) => x.id === sharing?.id);
 
   const load = useCallback(() => {
     invoke<WebSession[]>("web_sessions").then(setSessions).catch(() => {});
@@ -217,7 +303,7 @@ export default function WebView({ notify }: { notify: Notify }) {
       {sessions && sessions.length === 0 ? (
         <p className="empty-page">Активных ссылок нет.</p>
       ) : (
-        sessions?.map((s) => <Card key={s.id} s={s} onClose={() => close(s.id)} notify={notify} />)
+        sessions?.map((s) => <Card key={s.id} s={s} onClose={() => close(s.id)} notify={notify} onShare={(url) => setSharing({ id: s.id, url })} />)
       )}
 
       {padResolve && (
@@ -227,6 +313,9 @@ export default function WebView({ notify }: { notify: Notify }) {
           onDone={finishPad}
           onCancel={() => finishPad(null)}
         />
+      )}
+      {sharing && sharedSession && (
+        <ShareDialog s={sharedSession} url={sharing.url} notify={notify} onClose={() => setSharing(null)} />
       )}
     </section>
   );

@@ -22,6 +22,7 @@ export interface HistoryRecord {
   path: string | null;
   error: string | null;
   text: string | null;
+  batch: string | null;
 }
 
 export type CoreEvent =
