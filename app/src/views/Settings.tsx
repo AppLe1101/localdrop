@@ -8,6 +8,7 @@ import { getTheme, setTheme, type Theme } from "../theme";
 import { checkForUpdates, getAutoCheck, installUpdate, setAutoCheck, useUpdater } from "../updater";
 import { human } from "../format";
 import { getVersion } from "@tauri-apps/api/app";
+import { getFx, setFx, type Fx } from "../fx";
 
 const MODES: { key: Visibility; title: string; text: string }[] = [
   {
@@ -52,6 +53,7 @@ export default function SettingsView({ info, notify, onChanged }: Props) {
   const [capturing, setCapturing] = useState(false);
   const [theme, setThemeState] = useState<Theme>(getTheme());
   const [ver, setVer] = useState("");
+  const [fx, setFxState] = useState<Fx>(getFx());
   useEffect(() => { getVersion().then(setVer).catch(() => {}); }, []);
 
   useEffect(() => {
@@ -232,6 +234,17 @@ export default function SettingsView({ info, notify, onChanged }: Props) {
               <button key={k} className={theme === k ? "on" : ""} onClick={() => { setTheme(k); setThemeState(k); }}>
                 {l}
               </button>
+            ))}
+          </div>
+        </div>
+        <div className="srow">
+          <div className="grow">
+            <div className="label">Эффект размытия</div>
+            <div className="value">«Авто» отключает размытие, если нет аппаратного ускорения. Выключите, если интерфейс тормозит</div>
+          </div>
+          <div className="seg">
+            {([["auto", "Авто"], ["on", "Вкл"], ["off", "Выкл"]] as [Fx, string][]).map(([k, l]) => (
+              <button key={k} className={fx === k ? "on" : ""} onClick={() => { setFx(k); setFxState(k); }}>{l}</button>
             ))}
           </div>
         </div>

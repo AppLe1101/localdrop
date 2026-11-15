@@ -4,10 +4,12 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import App from "./App";
 import DropZone from "./DropZone";
 import { initTheme } from "./theme";
+import { applyFx } from "./fx";
 
 const Root = getCurrentWindow().label === "dropzone" ? DropZone : App;
 
 initTheme();
+applyFx();
 
 if (!import.meta.env.DEV) {
   window.addEventListener("contextmenu", (e) => {

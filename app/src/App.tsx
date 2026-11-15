@@ -10,7 +10,7 @@ import DevicesView from "./views/Devices";
 import HistoryView from "./views/History";
 import SettingsView from "./views/Settings";
 import WebView from "./views/Web";
-import TitleBar from "./components/TitleBar";
+import TitleBar, {IS_MAC} from "./components/TitleBar";
 import type { Peer, Transfer } from "./types";
 import { checkForUpdates, getAutoCheck, installUpdate, useUpdater } from "./updater";
 import "./App.css";
@@ -200,6 +200,8 @@ export default function App() {
   const [hover, setHover] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [sheet, setSheet] = useState(false);
+  const [net, setNet] = useState<"noLan" | "noDiscovery" | null>(null);
+  const [netHidden, setNetHidden] = useState<string | null>(null);
 
   const [peerView, setPeerView] = useState<PeerView>(() => {
     try { return (localStorage.getItem("ld-peerview") as PeerView) || "radar"; } catch { return "radar"; }
@@ -398,6 +400,20 @@ export default function App() {
     }
   }, [upd, notify])
 
+  // NET
+  useEffect(() => {
+    let alive = true;
+    const poll = () =>
+      invoke<{ problem: "noLan" | "noDiscovery" | null }>("net_status")
+        .then((s) => alive && setNet(s.problem))
+        .catch(() => {});
+    poll();
+    const t = setInterval(poll, 5000);
+    return () => { alive = false; clearInterval(t); };
+  }, []);
+
+  useEffect(() => { if (!net) setNetHidden(null); }, [net]);
+
   const pickFolder = useCallback(async () => {
   const r = await open({ directory: true, multiple: false });
     return typeof r === "string" ? [r] : [];
@@ -465,6 +481,16 @@ export default function App() {
     await sendToMany(ids, files);
   };
 
+  const isWin = /Win/i.test(navigator.platform);
+  const netMsg =
+    net === "noLan"
+      ? { t: "Нет подключения к локальной сети", d: "Подключитесь к WI-FI или Ethernet, устройства появятся сами" }
+      : IS_MAC
+        ? { t: "Устройства могут быть не видны", d: "Системные настройки → Конфиденциальность и безопасность → Локальная сеть → включите LocalDrop" }
+        : isWin
+          ? { t: "Брандмауэр может блокировать LocalDrop", d: "Разрешите доступ в частных сетях (UDP 5353 и 53317)" }
+          : { t: "Обнаружение устройств не работает", d: "Проверьте брандмауэр: ufw allow 53317/udp и 5353/udp" }
+
   const active = transfers.filter((t) => t.status === "waiting" || t.status === "active");
   const activeFor = (peerId: string) => active.find((t) => t.peerId === peerId);
   //const waitingCode = transfers.find((t) => t.awaiting && t.code);
@@ -483,6 +509,27 @@ export default function App() {
         busy={active.length > 0}
         info={info}
       />
+
+      {net && netHidden !== net && (
+        <div className="netbar glass">
+          <div style={{display: "flex", flexDirection: "row", gap: "10px", alignItems: "center"}}>
+            <span className="t-ico warn-ico">!</span>
+            <div className="toast-body">
+              <b>{netMsg.t}</b>
+              <small>{netMsg.d}</small>
+            </div>
+          </div>
+          <span className="nb-btns">
+            {net === "noDiscovery" && (IS_MAC || isWin) && (
+              <button className="pill" onClick={() => invoke("open_network_settings")}>Открыть настройки</button>
+            )}
+            <button className="pill" onClick={() => { setNetHidden(null); invoke("restart_discovery").catch(() => {}); }}>
+              Проверить снова
+            </button>
+            <button className="icon-btn" aria-label="Скрыть" onClick={() => setNetHidden(net)}>✕</button>
+          </span>
+        </div>
+      )}
 
       <div className="toasts">
         {awaitingList.length > 0 && (
@@ -608,69 +655,6 @@ export default function App() {
             )}
           </section>
 
-          {/* <footer className={"dock glass" + (multi || hasStaged ? " multi" : "")}>
-            {hasStaged && (
-              <span className="staged-chip">
-                <span className="chip-text">{stagedLabel}</span>
-                <button className="chip-x" title="Очистить" aria-label="Очистить" onClick={clearStaged}>
-                  <Ico>{ICON.close}</Ico>
-                </button>
-              </span>
-            )}
-
-            <span className="dock-text hint">
-              {multi
-                ? selected.length
-                  ? `Выбрано: ${selected.length} из ${peers.length}`
-                  : "Выберите устройства"
-                : hasStaged
-                  ? "выберите устройство"
-                  : "Перетащите файл или папку, либо вставьте текст (Ctrl+V)"}
-            </span>
-
-            {multi ? (
-              <>
-                <button className="pill" onClick={toggleAll}>
-                  {allSelected ? "Снять все" : "Выбрать все"}
-                </button>
-                <button className="pill primary" disabled={!selected.length} onClick={sendSelected}>
-                  <Ico>{ICON.send}</Ico><span className="pill-text">Отправить</span>
-                </button>
-                <button className="pill" onClick={exitMulti}>Отмена</button>
-              </>
-            ) : (
-              <>
-                {peers.length > 1 && (
-                  <button className="pill" title="Выбрать несколько устройств" aria-label="Выбрать несколько устройств" onClick={() => setMulti(true)}>
-                    <Ico>{ICON.users}</Ico>
-                  </button>
-                )}
-                <button className="pill" title="Файлы" aria-label="Файлы" onClick={() => addFiles(pickFiles)}>
-                  <Ico>{ICON.file}</Ico>
-                </button>
-                <button className="pill" title="Папка" aria-label="Папка" onClick={() => addFiles(pickFolder)}>
-                  <Ico>{ICON.folder}</Ico>
-                </button>
-                <button className="pill" title="Текст" aria-label="Текст" onClick={() => { setDraft(""); setComposing(true); }}>
-                  <Ico>{ICON.text}</Ico>
-                </button>
-                <button className="pill" title="Вставить из буфера" aria-label="Вставить из буфера" onClick={pasteFromClipboard}>
-                  <Ico>{ICON.clipboard}</Ico>
-                </button>
-              </>
-            )}
-
-            <button
-              className={"pill" + (sheet ? " primary" : "")}
-              title="Передачи"
-              aria-label="Передачи"
-              onClick={() => setSheet((v) => !v)}
-            >
-              <Ico>{ICON.transfers}</Ico>
-              <span className="pill-text">Передачи</span>
-              {active.length > 0 && <span className="badge">{active.length}</span>}
-            </button>
-          </footer> */}
           <footer className="dock-wrap">
             <div className="dock glass" ref={dockRef}>
               {hasStaged && (

@@ -874,12 +874,19 @@ fn disposition(name: &str) -> HeaderValue {
         .unwrap_or_else(|_| HeaderValue::from_static("attachment"))
 }
 
+fn is_virtual(name: &str) -> bool {
+    let n = name.to_lowercase();
+    ["vethernet", "wsl", "docker", "virtual", "vmware", "vbox", "hyper-v", "vpn", "tailscale", "zerotier", "veth", "br-"]
+        .iter()
+        .any(|k| n.contains(k))
+}
+
 pub fn lan_ips() -> Vec<String> {
     let mut v: Vec<(u8, String)> = Vec::new();
     if let Ok(list) = local_ip_address::list_afinet_netifas() {
         for (name, ip) in list {
             let IpAddr::V4(a) = ip else { continue };
-            if a.is_loopback() || a.is_link_local() || a.is_unspecified() {
+            if a.is_loopback() || a.is_link_local() || a.is_unspecified() || is_virtual(&name) {
                 continue;
             }
             let n = name.to_lowercase();

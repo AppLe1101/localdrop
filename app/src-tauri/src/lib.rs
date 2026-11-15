@@ -60,6 +60,7 @@ impl AppState {
     }
 
     fn announce(&self) {
+        mark_announce();
         if self.core.visibility() == Visibility::Off {
             self.discovery.unannounce();
             return;
@@ -385,6 +386,8 @@ fn qr_svg(text: String) -> Result<String, String> {
 
 static TRAY_OK: AtomicBool = AtomicBool::new(false);
 static DZ_PLACED: AtomicBool = AtomicBool::new(false);
+static SELF_SEEN: AtomicBool = AtomicBool::new(false);
+static ANNOUNCE_AT: AtomicU64 = AtomicU64::new(0);
 
 struct TrayItems(Vec<(Visibility, CheckMenuItem<tauri::Wry>)>);
 
@@ -394,6 +397,11 @@ fn show_main(app: &AppHandle) {
         let _ = w.unminimize();
         let _ = w.set_focus();
     }
+}
+
+fn mark_announce() {
+    SELF_SEEN.store(false, Ordering::Relaxed);
+    ANNOUNCE_AT.store(now_secs(), Ordering::Relaxed);
 }
 
 const DEFAULT_HOTKEY: &str = "CommandOrControl+Alt+D";
@@ -773,6 +781,46 @@ fn save_file(path: String, data: Vec<u8>) -> Result<(), String> {
     std::fs::write(&path, data).map_err(|e| format!("Не удалось сохранить: {e}"))
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NetStatus {
+    /// "noLan" | "noDiscovery" | null
+    problem: Option<&'static str>,
+}
+
+#[tauri::command]
+fn net_status(state: State<'_, AppState>) -> NetStatus {
+    if ld_web::lan_ips().is_empty() {
+        return NetStatus { problem: Some("noLan") };
+    }
+    let announcing = state.core.visibility() != Visibility::Off;
+    let age = now_secs().saturating_sub(ANNOUNCE_AT.load(Ordering::Relaxed));
+    if announcing && !SELF_SEEN.load(Ordering::Relaxed) && age >= 12 {
+        return NetStatus { problem: Some("noDiscovery") };
+    }
+    NetStatus { problem: None }
+}
+
+#[tauri::command]
+fn restart_discovery(state: State<'_, AppState>) -> Result<(), String> {
+    mark_announce();
+    state.discovery.restart().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn open_network_settings() {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open")
+            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork")
+            .spawn();
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("control").arg("firewall.cpl").spawn();
+    }
+}
+
 // INITIALIZE
 fn default_downloads(dd: &Path) -> PathBuf {
     dirs::download_dir().unwrap_or_else(|| dd.join("downloads")).join("LocalDrop")
@@ -871,6 +919,7 @@ async fn init(app: AppHandle) -> anyhow::Result<AppState> {
     let discovery = Discovery::new()?;
     if settings.visibility != Visibility::Off {
         discovery.announce(&name, port, &my_fp)?;
+        mark_announce();
     }
     let mut rx = discovery.browse()?;
     let peers: Arc<Mutex<HashMap<String, Peer>>> = Arc::default();
@@ -883,6 +932,7 @@ async fn init(app: AppHandle) -> anyhow::Result<AppState> {
                 match ev {
                     DiscoveryEvent::Found(p) => {
                         if p.fp.as_deref() == Some(my_fp.as_str()) {
+                            SELF_SEEN.store(true, Ordering::Relaxed);
                             continue; // this device
                         }
                         let dto = PeerDto::from(&p);
@@ -911,6 +961,7 @@ async fn init(app: AppHandle) -> anyhow::Result<AppState> {
                         });
                     }
                     DiscoveryEvent::Reset => {
+                        mark_announce();
                         let ids: Vec<String> = peers.lock().unwrap().drain().map(|(k, _)| k).collect();
                         for id in ids {
                             let _ = app.emit("peer-lost", id);
@@ -1029,7 +1080,10 @@ pub fn run() {
             qr_svg,
             read_clipboard,
             take_external_files,
-            save_file
+            save_file,
+            net_status,
+            restart_discovery,
+            open_network_settings
         ])
         .build(tauri::generate_context!())
         .expect("LocalDrop startup error")
