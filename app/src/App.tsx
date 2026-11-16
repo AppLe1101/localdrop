@@ -11,6 +11,7 @@ import HistoryView from "./views/History";
 import SettingsView from "./views/Settings";
 import WebView from "./views/Web";
 import TitleBar, {IS_MAC} from "./components/TitleBar";
+import CodeDigits from "./components/CodeDigits";
 import type { Peer, Transfer } from "./types";
 import { checkForUpdates, getAutoCheck, installUpdate, useUpdater } from "./updater";
 import "./App.css";
@@ -543,7 +544,7 @@ export default function App() {
                 {awaitingList.map((t) => (
                   <li key={t.id}>
                     <span className="cl-name">{t.peerName ?? "устройство"}</span>
-                    <span className="cl-code">{t.code}</span>
+                    <span className="cl-code">{t.code && <CodeDigits code={t.code} />}</span>
                   </li>
                 ))}
               </ul>
@@ -832,7 +833,7 @@ export default function App() {
             )}
             <p className="hint">{human(cur.size)}</p>
             {!cur.knownName && <p className="warn">Новое устройство</p>}
-            <div className="code">{cur.code}</div>
+            <div className="code"><CodeDigits code={cur.code} /></div>
             <p className="hint">
               Код должен совпадать с кодом на экране отправителя
               <br />Отпечаток: {cur.fpShort}

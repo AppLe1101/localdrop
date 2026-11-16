@@ -8,3 +8,5 @@ ld-protocol = { path = "../ld-protocol" }
 mdns-sd = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
+blake3 = { workspace = true }
+getrandom = "0.2"

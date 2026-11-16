@@ -5,7 +5,15 @@ export type Decision = "reject" | "acceptOnce" | "acceptAndTrust";
 export interface Peer { id: string; name: string; addr: string; fp: string | null }
 export type Visibility = "off" | "trustedOnly" | "everyone";
 export interface MyInfo { name: string; fpShort: string; visibility: Visibility }
-export interface SettingsData { deviceName: string; downloadDir: string; visibility: Visibility; autostart: boolean; quitOnClose: boolean; hotkey: string; }
+export interface SettingsData { 
+  deviceName: string; 
+  downloadDir: string; 
+  visibility: Visibility; 
+  autostart: boolean; 
+  quitOnClose: boolean; 
+  hotkey: string;
+  discoverable: "everyone" | "trustedOnly" | "nobody";
+}
 export interface SendResult {
   id: number;
   outcome: "sent" | "rejected" | "nameConflict" | "failed";

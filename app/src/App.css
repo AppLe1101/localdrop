@@ -206,6 +206,7 @@ h1 {
 }
 
 .tabs {
+  position: relative;
   display: flex;
   gap: 2px;
   padding: 3px;
@@ -233,9 +234,24 @@ h1 {
 }
 
 .tab.on {
-  background: var(--glass-strong);
   color: var(--fg);
+}
+
+.tab-capsule {
+  position: absolute;
+  z-index: 0;
+  top: 3px;
+  bottom: 3px;
+  left: 0;
+  border-radius: 999px;
+  background: var(--glass-strong);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.14);
+  pointer-events: none;
+  transition: transform 360ms cubic-bezier(.2, .8, .2, 1), width 360ms cubic-bezier(.2, .8, .2, 1);
+}
+
+.tab {
+  z-index: 1;
 }
 
 .tab .dot {
@@ -1426,6 +1442,27 @@ h1 {
   font-variant-numeric: tabular-nums;
 }
 
+.code-digits {
+  display: inline-flex;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.code-digit {
+  display: inline-block;
+  transform-origin: 50% 65%;
+  animation: code-digit-in 520ms cubic-bezier(.2, .85, .25, 1.2) both;
+}
+
+.code-digit-space {
+  width: .4em;
+}
+
+@keyframes code-digit-in {
+  from { opacity: 0; transform: translateY(.55em) rotateX(-75deg) scale(.82); }
+  to { opacity: 1; transform: translateY(0) rotateX(0) scale(1); }
+}
+
 .code-toast b {
   margin-left: 6px;
   font-size: 18px;
@@ -1617,10 +1654,10 @@ h1 {
 }
 
 .code {
-  margin: 14px 0 4px;
-  font-size: 30px;
+  display: block;
+  font-size: 34px;
   font-weight: 700;
-  letter-spacing: 3px;
+  letter-spacing: 4px;
   color: var(--accent);
   font-variant-numeric: tabular-nums;
 }
@@ -1707,6 +1744,22 @@ h1 {
 .group {
   border-radius: 20px;
   overflow: hidden;
+}
+
+.settings-transfer-group .settings-download {
+  border-top: 1px solid var(--line);
+}
+
+.settings-subheading {
+  padding: 12px 16px 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.settings-download .srow {
+  border-top: 0;
+  padding-top: 10px;
 }
 
 .list {
@@ -2173,6 +2226,10 @@ h1 {
   font-size: 20px;
   letter-spacing: 2px;
   color: var(--accent);
+}
+
+.dz-code-digits {
+  letter-spacing: 2px;
 }
 
 .dz-code small {

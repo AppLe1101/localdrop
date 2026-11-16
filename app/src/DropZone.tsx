@@ -5,6 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { ask, open } from "@tauri-apps/plugin-dialog";
 import { baseName, hue, initial } from "./format";
+import CodeDigits from "./components/CodeDigits";
 import type { CoreEvent, Peer, SendResult } from "./types";
 import "./App.css";
 
@@ -178,7 +179,7 @@ export default function DropZone() {
 
         {code && (
           <div className="dz-code">
-            Код подтверждения <b>{code.code}</b>
+            Код подтверждения <b><CodeDigits code={code.code} className="dz-code-digits" /></b>
             <small>Сверьте с экраном получателя</small>
           </div>
         )}

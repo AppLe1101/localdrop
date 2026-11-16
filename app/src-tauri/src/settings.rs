@@ -2,6 +2,15 @@ use ld_core::Visibility;
 use serde::{Deserialize, Serialize};
 use std::{fs, path::Path};
 
+#[derive(Serialize, Deserialize, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum Discoverable {
+    #[default]
+    Everyone,
+    TrustedOnly,
+    Nobody,
+}
+
 #[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
@@ -10,6 +19,7 @@ pub struct Settings {
     pub visibility: Visibility,
     pub quit_on_close: bool,
     pub dropzone_hotkey: Option<String>,
+    pub discoverable: Discoverable,
 }
 
 impl Settings {

@@ -13,3 +13,4 @@ downloads/
 *.db-shm
 .env
 README.md
+app/src-tauri/windows/installer.nsi

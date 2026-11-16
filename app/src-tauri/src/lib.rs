@@ -6,7 +6,7 @@ use ld_crypto::{fp_hex, fp_short, Identity, TrustStore};
 use ld_discovery::{Discovery, DiscoveryEvent, Peer};
 use ld_storage::{History, NewRecord, Record};
 use serde::Serialize;
-use settings::Settings;
+use settings::{Discoverable, Settings};
 use std::{
     collections::HashMap,
     net::SocketAddr,
@@ -48,6 +48,7 @@ struct AppState {
     history: Arc<History>,
     settings: Mutex<Settings>,
     meta: Arc<Mutex<HashMap<u64, TransferMeta>>>,
+    last_trusted: Mutex<Vec<String>>,
 }
 
 impl AppState {
@@ -61,13 +62,43 @@ impl AppState {
 
     fn announce(&self) {
         mark_announce();
-        if self.core.visibility() == Visibility::Off {
+        let vis = self.core.visibility();
+        let disc = self.settings.lock().unwrap().discoverable;
+        if vis == Visibility::Off || disc == Discoverable::Nobody {
             self.discovery.unannounce();
             return;
         }
         let name = self.name.lock().unwrap().clone();
-        if let Err(e) = self.discovery.announce(&name, self.port, &self.fp_hex) {
+        let res = if disc == Discoverable::TrustedOnly {
+            let trusted: Vec<String> = self.core.devices().into_iter().filter(|d| d.trusted).map(|d| d.fingerprint).collect();
+            self.discovery.announce_hidden(self.port, &self.fp_hex, &trusted)
+        } else {
+            self.discovery.announce(&name, self.port, &self.fp_hex)
+        };
+        
+        if let Err(e) = res {
             eprintln!("unable to update announce: {e:#}");
+        }
+    }
+
+    fn sync_known(&self) {
+        self.discovery.set_known(self.core.devices().into_iter().map(|d| (d.fingerprint, d.name)).collect());
+    }
+
+    fn refresh_trust(&self) {
+        self.sync_known();
+        let disc = self.settings.lock().unwrap().discoverable;
+        if disc != Discoverable::TrustedOnly {
+            return;
+        }
+        let mut t: Vec<String> = self.core.devices().into_iter().filter(|d| d.trusted).map(|d| d.fingerprint).collect();
+        t.sort();
+        let changed = {
+            let mut g = self.last_trusted.lock().unwrap();
+            if *g != t { *g = t; true } else { false }
+        };
+        if changed {
+            self.announce();
         }
     }
 
@@ -117,6 +148,7 @@ struct SettingsView {
     autostart: bool,
     quit_on_close: bool,
     hotkey: String,
+    discoverable: Discoverable
 }
 
 #[derive(Clone, Serialize)]
@@ -241,12 +273,16 @@ fn list_devices(state: State<'_, AppState>) -> Vec<DeviceInfo> {
 
 #[tauri::command]
 fn forget_device(prefix: String, state: State<'_, AppState>) -> Result<usize, String> {
-    state.core.forget(&prefix).map_err(|e| e.to_string())
+    let r = state.core.forget(&prefix).map_err(|e| e.to_string());
+    state.refresh_trust();
+    r
 }
 
 #[tauri::command]
 fn set_device_trusted(fingerprint: String, trusted: bool, state: State<'_, AppState>) -> Result<bool, String> {
-    state.core.set_trusted(&fingerprint, trusted).map_err(|e| e.to_string())
+    let r = state.core.set_trusted(&fingerprint, trusted).map_err(|e| e.to_string());
+    state.refresh_trust();
+    r
 }
 
 #[tauri::command]
@@ -255,7 +291,9 @@ fn rename_device(fingerprint: String, name: String, state: State<'_, AppState>) 
     if name.is_empty() {
         return Err("Name cannot be empty".into());
     }
-    state.core.rename_device(&fingerprint, name).map_err(|e| e.to_string())
+    let r = state.core.rename_device(&fingerprint, name).map_err(|e| e.to_string());
+    state.refresh_trust();
+    r
 }
 
 // COMMANDS: HISTORY
@@ -277,9 +315,9 @@ fn clear_history(state: State<'_, AppState>) -> Result<(), String> {
 // COMMANDS: SETTINGS
 #[tauri::command]
 fn get_settings(app: AppHandle, state: State<'_, AppState>) -> SettingsView {
-    let (quit_on_close, hotkey) = {
+    let (quit_on_close, hotkey, discoverable) = {
         let s = state.settings.lock().unwrap();
-        (s.quit_on_close, current_hotkey(&s))
+        (s.quit_on_close, current_hotkey(&s), s.discoverable)
     };
 
     SettingsView {
@@ -289,6 +327,7 @@ fn get_settings(app: AppHandle, state: State<'_, AppState>) -> SettingsView {
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
         quit_on_close,
         hotkey,
+        discoverable,
     }
 }
 
@@ -382,6 +421,14 @@ fn web_close(id: String, state: State<'_, AppState>) -> bool {
 #[tauri::command]
 fn qr_svg(text: String) -> Result<String, String> {
     ld_web::qr_svg(&text).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn set_discoverable(mode: Discoverable, state: State<'_, AppState>) -> Result<(), String> {
+    state.settings.lock().unwrap().discoverable = mode;
+    state.persist()?;
+    state.announce();
+    Ok(())
 }
 
 static TRAY_OK: AtomicBool = AtomicBool::new(false);
@@ -793,7 +840,7 @@ fn net_status(state: State<'_, AppState>) -> NetStatus {
     if ld_web::lan_ips().is_empty() {
         return NetStatus { problem: Some("noLan") };
     }
-    let announcing = state.core.visibility() != Visibility::Off;
+    let announcing = state.core.visibility() != Visibility::Off && state.settings.lock().unwrap().discoverable == Discoverable::Everyone;
     let age = now_secs().saturating_sub(ANNOUNCE_AT.load(Ordering::Relaxed));
     if announcing && !SELF_SEEN.load(Ordering::Relaxed) && age >= 12 {
         return NetStatus { problem: Some("noDiscovery") };
@@ -884,6 +931,9 @@ async fn init(app: AppHandle) -> anyhow::Result<AppState> {
                     Ok(e) => {
                         if let Event::Incoming { .. } = &e {
                             show_main(&app);
+                            if matches!(e, Event::Started { .. }) {
+                                if let Some(s) = app.try_state::<AppState>() { s.refresh_trust(); } 
+                            }
                         }
                         record(&history, &meta, &app, &e);
                         let _ = app.emit("core-event", &e);
@@ -917,10 +967,8 @@ async fn init(app: AppHandle) -> anyhow::Result<AppState> {
 
     // searching devices
     let discovery = Discovery::new()?;
-    if settings.visibility != Visibility::Off {
-        discovery.announce(&name, port, &my_fp)?;
-        mark_announce();
-    }
+    discovery.set_identity(&my_fp);
+    discovery.set_known(core.devices().into_iter().map(|d| (d.fingerprint, d.name)).collect());
     let mut rx = discovery.browse()?;
     let peers: Arc<Mutex<HashMap<String, Peer>>> = Arc::default();
     {
@@ -986,6 +1034,7 @@ async fn init(app: AppHandle) -> anyhow::Result<AppState> {
         history,
         settings: Mutex::new(settings),
         meta,
+        last_trusted: Mutex::new(Vec::new()),
     })
 }
 
@@ -1010,6 +1059,11 @@ pub fn run() {
         .setup(|app| {
             let state = tauri::async_runtime::block_on(init(app.handle().clone()))?;
             app.manage(state);
+            {
+                let st = app.state::<AppState>();
+                st.sync_known();
+                st.announce();
+            }
             spawn_watchdog(app.handle().clone());
             queue_paths(app.handle(), paths_from_args(&std::env::args().collect::<Vec<_>>()));
             match build_tray(app.handle()) {
@@ -1083,7 +1137,8 @@ pub fn run() {
             save_file,
             net_status,
             restart_discovery,
-            open_network_settings
+            open_network_settings,
+            set_discoverable
         ])
         .build(tauri::generate_context!())
         .expect("LocalDrop startup error")

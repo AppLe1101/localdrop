@@ -47,6 +47,13 @@ function toAccel(e: KeyboardEvent): string | null {
   return mods.length ? [...mods, e.code].join("+") : "";
 }
 
+type Disc = SettingsData["discoverable"];
+const DISC: { key: Disc; title: string; text: string }[] = [
+  { key: "everyone", title: "Все", text: "Устройство видно на радарах всех устройств в сети." },
+  { key: "trustedOnly", title: "Только доверенные", text: "Видят только устройства из вашего списка доверенных. Остальным оно не показывается." },
+  { key: "nobody", title: "Никто", text: "Устройство не объявляет себя в сети. Вы по-прежнему видите других." },
+];
+
 export default function SettingsView({ info, notify, onChanged }: Props) {
   const [data, setData] = useState<SettingsData | null>(null);
   const [name, setName] = useState("");
@@ -94,6 +101,15 @@ export default function SettingsView({ info, notify, onChanged }: Props) {
       onChanged();
     } catch (e) {
       fail("Не удалось изменить режим")(e);
+    }
+  };
+
+  const setDisc = async (mode: Disc) => {
+    try {
+      await invoke("set_discoverable", { mode });
+      setData((d) => d && { ...d, discoverable: mode });
+    } catch (e) {
+      fail("Не удалось изменить видимость")(e);
     }
   };
 
@@ -178,7 +194,7 @@ export default function SettingsView({ info, notify, onChanged }: Props) {
       </div>
 
       <div className="day">Кто может отправлять вам файлы</div>
-      <div className="group glass">
+      <div className="group glass settings-transfer-group">
         <div className="opts">
           {MODES.map((m) => (
             <button
@@ -194,10 +210,8 @@ export default function SettingsView({ info, notify, onChanged }: Props) {
             </button>
           ))}
         </div>
-      </div>
-
-      <div className="day">Приём файлов</div>
-      <div className="group glass">
+        <div className="settings-download">
+      <div className="settings-subheading">Приём файлов</div>
         <div className="srow">
           <div className="grow">
             <div className="label">Папка загрузок</div>
@@ -205,6 +219,19 @@ export default function SettingsView({ info, notify, onChanged }: Props) {
           </div>
           <button className="pill" title="Изменить…" onClick={chooseDir}><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M13 21h8"/><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></svg></button>
           <button className="pill" onClick={() => setDir("")}>По умолчанию</button>
+        </div>
+        </div>
+      </div>
+
+      <div className="day">Кто видит это устройство</div>
+      <div className="group glass">
+        <div className="opts">
+          {DISC.map((m) => (
+            <button key={m.key} className={"opt" + (data.discoverable === m.key ? " on" : "")} onClick={() => setDisc(m.key)}>
+              <span className="radio" />
+              <span><b>{m.title}</b><small>{m.text}</small></span>
+            </button>
+          ))}
         </div>
       </div>
 

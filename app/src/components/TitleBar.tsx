@@ -1,4 +1,4 @@
-import { useEffect, useState, ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, ReactNode } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { MyInfo } from "../types";
 
@@ -66,6 +66,26 @@ function Controls() {
 }
 
 export default function TitleBar({ tabs, view, onView, busy }: Props) {
+    const tabsRef = useRef<HTMLElement>(null);
+    const [capsule, setCapsule] = useState({ x: 0, width: 0 });
+
+    useLayoutEffect(() => {
+        const nav = tabsRef.current;
+        if (!nav) return;
+        const update = () => {
+            const active = nav.querySelector<HTMLElement>(".tab.on");
+            if (active) setCapsule({ x: active.offsetLeft, width: active.offsetWidth });
+        };
+        update();
+        const observer = new ResizeObserver(update);
+        observer.observe(nav);
+        window.addEventListener("resize", update);
+        return () => {
+            observer.disconnect();
+            window.removeEventListener("resize", update);
+        };
+    }, [view]);
+
     return (
         <header className={"bar" + (IS_MAC ? " mac" : "")} data-tauri-drag-region>
         <div className="bar-l" data-tauri-drag-region>
@@ -77,7 +97,8 @@ export default function TitleBar({ tabs, view, onView, busy }: Props) {
             <span className="brand-name" data-tauri-drag-region>LocalDrop</span>
         </div>
 
-        <nav className="tabs glass">
+        <nav className="tabs glass" ref={tabsRef}>
+            <span className="tab-capsule" aria-hidden="true" style={{ transform: `translateX(${capsule.x}px)`, width: capsule.width }} />
             {tabs.map(([k, label]) => (
                 <button
                 key={k}

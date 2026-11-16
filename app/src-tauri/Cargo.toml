@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "0.1.5"
+version = "0.1.6"
 description = "LocalDrop"
 authors = ["ablochko"]
 edition = "2024"
@@ -24,7 +24,7 @@ ld-discovery = { path = "../../crates/ld-discovery" }
 ld-transport = { path = "../../crates/ld-transport" }
 ld-storage = { path = "../../crates/ld-storage" }
 ld-web = { path = "../../crates/ld-web" }
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon", "devtools"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-autostart = "2"

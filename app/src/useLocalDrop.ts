@@ -35,6 +35,11 @@ type Action =
 
 const byName = (a: Peer, b: Peer) => a.name.localeCompare(b.name);
 
+function isUnresolvedService(peer: Peer): boolean {
+  const id = peer.id.toLowerCase();
+  return id.startsWith("ld-") && id.endsWith("_localdrop._udp.local");
+}
+
 function patch(s: State, id: number, p: Partial<Transfer>): State {
   return { ...s, transfers: s.transfers.map((t) => (t.id === id ? { ...t, ...p } : t)) };
 }
@@ -42,8 +47,9 @@ function patch(s: State, id: number, p: Partial<Transfer>): State {
 function reducer(s: State, a: Action): State {
   switch (a.kind) {
     case "peers":
-      return { ...s, peers: [...a.peers].sort(byName) };
+      return { ...s, peers: a.peers.filter((peer) => !isUnresolvedService(peer)).sort(byName) };
     case "peerFound":
+      if (isUnresolvedService(a.peer)) return { ...s, peers: s.peers.filter((p) => p.id !== a.peer.id) };
       return { ...s, peers: [...s.peers.filter((p) => p.id !== a.peer.id), a.peer].sort(byName) };
     case "peerLost":
       return { ...s, peers: s.peers.filter((p) => p.id !== a.id) };
