@@ -141,7 +141,7 @@ function PeerRow({ peer, hover, transfer, selectMode, selected, onClick }: Omit<
   )
 }
 
-function TransferRow({ t, onCancel }: { t: Transfer; onCancel?: () => void }) {
+function TransferRow({ t }: { t: Transfer; }) {
   const pct = t.size > 0 ? Math.min(100, Math.floor((t.done * 100) / t.size)) : 0;
   const label = {
     waiting: "Ожидание ответа…",
