@@ -90,6 +90,7 @@ pub enum FfiEvent {
     TextReceived { id: u64, text: String },
     Finished { id: u64, path: Option<String> },
     Rejected { id: u64 },
+    Cancelled { id: u64 },
     Failed { id: u64, error: String },
     NameConflict { id: u64 },
 }
@@ -134,6 +135,7 @@ fn convert(e: Event) -> FfiEvent {
         Event::TextReceived { id, text } => FfiEvent::TextReceived { id, text },
         Event::Finished { id, path } => FfiEvent::Finished { id, path },
         Event::Rejected { id } => FfiEvent::Rejected { id },
+        Event::Cancelled { id } => FfiEvent::Cancelled { id },
         Event::Failed { id, error } => FfiEvent::Failed { id, error },
     }
 }
@@ -224,6 +226,10 @@ impl LocalDrop {
             }
         });
         Ok(id)
+    }
+
+    pub fn cancel(&self, id: u64) -> bool {
+        self.core.cancel(id)
     }
 }
 

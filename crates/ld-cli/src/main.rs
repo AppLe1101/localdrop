@@ -135,6 +135,7 @@ fn spawn_console(core: Arc<Core>) {
                     None => println!("\nReady."),
                 },
                 Event::Rejected { .. } => println!("Transfer rejected."),
+                Event::Cancelled { .. } => println!("\nTransfer cancelled"),
                 Event::Failed { error, .. } => eprintln!("\nTransfer error: {error}"),
             }
         }

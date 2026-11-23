@@ -12,7 +12,7 @@ type Filter = "all" | "send" | "receive";
 type Range = { from: Date; to: Date } | null;
 interface Group { key: string; kind: "batch" | "burst" | "single"; items: HistoryRecord[] }
 
-const STATUS = { done: "Готово", rejected: "Отклонено", failed: "Ошибка" } as const;
+const STATUS = { done: "Готово", rejected: "Отклонено", failed: "Ошибка", cancelled: "Отменено" } as const;
 
 // Dates
 const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -186,7 +186,7 @@ function GroupRow({ g, open, onToggle, onDelete, notify, onRemove }: {
 }) {
     const it = g.items;
     const n = (s: string) => it.filter((i) => i.status === s).length;
-    const done = n("done"), rej = n("rejected"), fail = n("failed");
+    const done = n("done"), rej = n("rejected") + n("cancelled"), fail = n("failed");
     const size = it.reduce((a, i) => a + i.size, 0);
     const peers = [...new Set(it.map((i) => i.peer))];
     const send = it[0].direction === "send";

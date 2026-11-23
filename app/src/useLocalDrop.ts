@@ -93,6 +93,8 @@ function reducer(s: State, a: Action): State {
           return patch(s, e.id, { status: "done", path: e.path, awaiting: false });
         case "rejected":
           return { ...patch(s, e.id, { status: "rejected", awaiting: false }), incoming: s.incoming.filter((i) => i.id !== e.id) };
+        case "cancelled":
+          return { ...patch(s, e.id, { status: "cancelled", awaiting: false }), incoming: s.incoming.filter((i) => i.id !== e.id) };
         case "failed":
           return { ...patch(s, e.id, { status: "failed", error: e.error, awaiting: false }), incoming: s.incoming.filter((i) => i.id !== e.id) };
       }
@@ -237,8 +239,23 @@ export function useLocalDrop() {
           } else {
             push({
               kind: "success", key: "sent", title: "Отправлено", groupTitle: "Отправлено: {n}",
-              text: `${m.name} → ${peer}`, names: [peer], namesLabel: "Кому",
+              text: `${m.name} -> ${peer}`, names: [peer], namesLabel: "Кому",
             });
+          }
+          break;
+        }
+        case "cancelled": {
+          const m = meta.current.get(e.id);
+          const q = asked.current.get(e.id);
+          forget(e.id);
+          if (m?.direction === "send") {
+            push({
+              kind: "warn", key: "cancelled", title: "Отправка отменена", groupTitle: "Отменено: {n}",
+              text: `${m.name} -> ${m.peerName ?? "Устройство"}`, names: [m.peerName ?? ""], namesLabel: "Кому",
+            });
+          } else if (q || m) {
+            const who = q?.sender ?? m?.peerName ?? "Отправитель";
+            push({ kind: "warn", key: "cancelled-in", title: "Отправитель отменил передачу", groupTitle: "Отправители отменили: {n}", text: `${who}: ${q?.name ?? m?.name ?? ""}` }, 6000);
           }
           break;
         }
@@ -415,6 +432,17 @@ export function useLocalDrop() {
     [push],
   );
 
+  const cancelTransfer = useCallback(
+    (id: number) => {
+      invoke<boolean>("cancel_transfer", { id })
+        .then((ok) => {
+          if (!ok) push({ kind: "info", title: "Отменять уже поздно", text: "Передача завершается" }, 2500);
+        })
+        .catch(() => {});
+    },
+    [push],
+  );
+
   const clearFinished = useCallback(() => dispatch({ kind: "clearDone" }), []);
 
   const refreshInfo = useCallback(() => {
@@ -422,5 +450,5 @@ export function useLocalDrop() {
   }, []);
 
   return { ...state, info, toasts, dismissToast, notify: push, 
-    refreshInfo, sendTo, sendText, respond, clearFinished, sendTextToMany, sendToMany };
+    refreshInfo, sendTo, sendText, respond, clearFinished, sendTextToMany, sendToMany, cancelTransfer };
 }

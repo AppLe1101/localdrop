@@ -76,6 +76,7 @@ export default function DropZone() {
         sent: "Отправлено ✓",
         rejected: "Отклонено",
         failed: "Не удалось (см. историю)",
+        cancelled: "Отменено",
         nameConflict: "Не удалось",
       }[res.outcome];
       setStatus({ peerId, text, error: res.outcome !== "sent" });

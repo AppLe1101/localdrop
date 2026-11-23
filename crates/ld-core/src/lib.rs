@@ -7,7 +7,7 @@ use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicU64, Ordering, AtomicBool},
         Arc, Mutex,
     },
     time::{Duration, Instant},
@@ -15,7 +15,7 @@ use std::{
 use tokio::{
     fs::File,
     io::{AsyncReadExt, AsyncWriteExt},
-    sync::{broadcast, oneshot},
+    sync::{broadcast, oneshot, Notify},
 };
 
 pub use ld_protocol::{Kind, PROTOCOL_VERSION};
@@ -23,6 +23,7 @@ pub use ld_protocol::{Kind, PROTOCOL_VERSION};
 const CHUNK: usize = 1024 * 1024;
 const PROGRESS_EVERY: Duration = Duration::from_millis(100);
 pub const DECISION_TIMEOUT: Duration = Duration::from_secs(60);
+const CANCEL_CODE: u32 = 2;
 
 // Pub types
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -76,6 +77,7 @@ pub enum Event {
     TextReceived { id: u64, text: String },
     Finished { id: u64, path: Option<String> },
     Rejected { id: u64 },
+    Cancelled { id: u64 },
     Failed { id: u64, error: String },
 }
 
@@ -83,6 +85,7 @@ pub enum Event {
 pub enum SendOutcome {
     Sent,
     Rejected,
+    Cancelled,
     NameConflict,
 }
 
@@ -103,6 +106,7 @@ pub struct Core {
     next_id: AtomicU64,
     visibility: Mutex<Visibility>,
     download_dir: Mutex<PathBuf>,
+    ctls: Mutex<HashMap<u64, Arc<Ctl>>>,
 }
 
 impl Core {
@@ -116,6 +120,7 @@ impl Core {
             next_id: AtomicU64::new(1),
             visibility: Mutex::new(Visibility::Everyone),
             download_dir: Mutex::new(PathBuf::from("downloads")),
+            ctls: Mutex::new(HashMap::new()),
         })
     }
 
@@ -177,6 +182,17 @@ impl Core {
         self.store.lock().unwrap().rename(key, name)
     }
 
+    pub fn cancel(&self, id: u64) -> bool {
+        let ctl = self.ctls.lock().unwrap().get(&id).cloned();
+        match ctl {
+            Some(c) if !c.locked.load(Ordering::Relaxed) => {
+                c.stop.notify_one();
+                true
+            }
+            _ => false,
+        }
+    }
+
     pub async fn send_file(
         &self,
         endpoint: &quinn::Endpoint,
@@ -209,11 +225,22 @@ impl Core {
         allow_conflict: bool,
         id: u64,
     ) -> Result<SendOutcome> {
-        let r = self
-            .send_inner(endpoint, addrs, payload, sender_name, target_name, allow_conflict, id)
-            .await;
-        if let Err(e) = &r {
-            self.emit(Event::Failed { id, error: format!("{e:#}") });
+        let ctl = Arc::new(Ctl::default());
+        self.ctls.lock().unwrap().insert(id, ctl.clone());
+        let r = tokio::select! {
+            r = self.send_inner(endpoint, addrs, payload, sender_name, target_name, allow_conflict, id, &ctl) => r,
+            _ = ctl.stop.notified() => {
+                if let Some(c) = ctl.conn.lock().unwrap().take() {
+                    c.close(CANCEL_CODE.into(), b"cancelled");
+                }
+                Ok(SendOutcome::Cancelled)
+            }
+        };
+        self.ctls.lock().unwrap().remove(&id);
+        match &r {
+            Err(e) => self.emit(Event::Failed { id, error: format!("{e:#}") }),
+            Ok(SendOutcome::Cancelled) => self.emit(Event::Cancelled { id }),
+            _ => {}
         }
         r
     }
@@ -227,6 +254,7 @@ impl Core {
         target_name: Option<&str>,
         allow_conflict: bool,
         id: u64,
+        ctl: &Ctl,
     ) -> Result<SendOutcome> {
         let (kind, sources, text_bytes, preview) = match payload {
             Payload::Paths(paths) => {
@@ -248,6 +276,7 @@ impl Core {
         let title = make_title(kind, &items);
 
         let conn = connect_any(endpoint, addrs).await?;
+        *ctl.conn.lock().unwrap() = Some(conn.clone());
         let peer_fp = ld_transport::peer_fingerprint(&conn)
             .context("получатель не предъявил сертификат")?;
         let code = short_code(&self.my_fp, &peer_fp);
@@ -341,6 +370,7 @@ impl Core {
         }
         self.emit(Event::Progress { id, done: sent, total });
 
+        ctl.locked.store(true, Ordering::Relaxed);
         write_msg(&mut send, &Message::Done).await?;
         send.finish()?;
 
@@ -418,6 +448,8 @@ impl Core {
             Visibility::Everyone => false,
         };
 
+        let mut left = false;
+
         let decision = if blocked {
             Decision::Reject
         } else if trusted {
@@ -443,7 +475,7 @@ impl Core {
                     Ok(Ok(d)) => d,
                     _ => Decision::Reject,
                 },
-                _ = conn.closed() => Decision::Reject,
+                _ = conn.closed() => {left = true; Decision::Reject},
             };
             self.pending.lock().unwrap().remove(&id);
             d
@@ -453,6 +485,11 @@ impl Core {
             let _ = write_msg(&mut send, &Message::Reject).await;
             let _ = send.finish();
             self.emit(Event::Rejected { id });
+            return Ok(());
+        }
+
+        if left && closed_by_sender(&conn) {
+            self.emit(Event::Cancelled { id });
             return Ok(());
         }
 
@@ -517,6 +554,10 @@ impl Core {
             Ok(t) => t,
             Err(e) => {
                 cleanup(&roots).await;
+                if closed_by_sender(&conn) {
+                    self.emit(Event::Cancelled { id });
+                    return Ok(());
+                }
                 let _ = write_msg(&mut send, &Message::Ack { ok: false }).await;
                 let _ = send.finish();
                 return Err(e);
@@ -617,6 +658,20 @@ impl Core {
 struct Source {
     file: PathBuf,
     item: Item,
+}
+
+#[derive(Default)]
+struct Ctl {
+    stop: Notify,
+    locked: AtomicBool,
+    conn: Mutex<Option<quinn::Connection>>,
+}
+
+fn closed_by_sender(conn: &quinn::Connection) -> bool {
+    matches!(
+        conn.close_reason(),
+        Some(quinn::ConnectionError::ApplicationClosed(c)) if c.error_code == quinn::VarInt::from_u32(CANCEL_CODE)
+    )
 }
 
 fn collect(paths: &[PathBuf]) -> Result<Vec<Source>> {

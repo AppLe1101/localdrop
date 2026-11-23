@@ -223,8 +223,9 @@ async fn run_send(
         Ok(SendOutcome::NameConflict) => {
             state.meta.lock().unwrap().remove(&id);
             "nameConflict"
-        }
-        Err(_) => "failed",
+        },
+        Ok(SendOutcome::Cancelled) => "cancelled",
+        Err(_) => "failed"
     };
     Ok(SendResult { id, outcome })
 }
@@ -719,6 +720,12 @@ fn set_download_dir(path: String, state: State<'_, AppState>) -> Result<String, 
     Ok(dir.display().to_string())
 }
 
+// Cancel
+#[tauri::command]
+fn cancel_transfer(id: u64, state: State<'_, AppState>) -> bool {
+    state.core.cancel(id)
+}
+
 // HISTORY
 fn record(history: &History, meta: &Mutex<HashMap<u64, TransferMeta>>, app: &AppHandle, e: &Event) {
     let mut m = meta.lock().unwrap();
@@ -757,6 +764,11 @@ fn record(history: &History, meta: &Mutex<HashMap<u64, TransferMeta>>, app: &App
         Event::Rejected { id } => {
             if let Some(t) = m.remove(id) {
                 entry = Some(make_record(t, "rejected", None, None));
+            }
+        }
+        Event::Cancelled { id } => {
+            if let Some(t) = m.remove(id) {
+                entry = Some(make_record(t, "cancelled", None, None));
             }
         }
         Event::Failed { id, error } => {
@@ -1138,7 +1150,8 @@ pub fn run() {
             net_status,
             restart_discovery,
             open_network_settings,
-            set_discoverable
+            set_discoverable,
+            cancel_transfer
         ])
         .build(tauri::generate_context!())
         .expect("LocalDrop startup error")

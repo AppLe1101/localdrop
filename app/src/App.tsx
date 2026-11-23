@@ -81,7 +81,7 @@ interface BubbleProps {
   transfer?: Transfer; selectMode: boolean; selected: boolean; onClick: () => void;
 }
 
-function PeerBubble({ peer, pos, scale = 1, hover, transfer, onClick, selectMode, selected }: BubbleProps) {
+function PeerBubble({ peer, pos, scale = 1, hover, transfer, onClick, selectMode, selected, onCancel }: BubbleProps & {onCancel?: () => void;}) {
   const frac = transfer && transfer.size > 0 ? transfer.done / transfer.size : 0;
   const waiting = transfer?.status === "waiting" || !!transfer?.awaiting;
   const status = transfer
@@ -99,6 +99,10 @@ function PeerBubble({ peer, pos, scale = 1, hover, transfer, onClick, selectMode
         <span className="avatar" style={{ "--h": hue(peer.name) } as CSSProperties}>
           {initial(peer.name)}
         </span>
+        {transfer && onCancel && (
+          <span className="cancel-x" role="button" title="Отменить отправку" aria-label="Отменить отправку"
+            onClick={(e) => { e.stopPropagation(); onCancel(); }}><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span>
+        )}
         {selectMode && <span className="check">{selected ? "✓" : ""}</span>}
         {transfer && (
           <svg className={"ring" + (waiting ? " spin" : "")} viewBox="0 0 100 100">
@@ -137,13 +141,14 @@ function PeerRow({ peer, hover, transfer, selectMode, selected, onClick }: Omit<
   )
 }
 
-function TransferRow({ t }: { t: Transfer }) {
+function TransferRow({ t, onCancel }: { t: Transfer; onCancel?: () => void }) {
   const pct = t.size > 0 ? Math.min(100, Math.floor((t.done * 100) / t.size)) : 0;
   const label = {
     waiting: "Ожидание ответа…",
     active: `${pct}% • ${human(t.size)}`,
     done: "Готово",
     failed: "Ошибка",
+    cancelled: "Отменено",
     rejected: "Отклонено",
   }[t.status];
   const text = t.awaiting ? "Ожидание ответа..." : label
@@ -191,7 +196,7 @@ function Countdown({ expiresAt, total }: { expiresAt: number; total: number }) {
 export default function App() {
   const {
     peers, incoming, transfers, info, toasts, dismissToast, notify, refreshInfo,
-    sendTo, sendText, respond, clearFinished, sendTextToMany, sendToMany
+    sendTo, sendText, respond, clearFinished, sendTextToMany, sendToMany, cancelTransfer
   } = useLocalDrop();
   const [stagedText, setStagedText] = useState<string | null>(null);
   const [composing, setComposing] = useState(false);
@@ -494,6 +499,8 @@ export default function App() {
 
   const active = transfers.filter((t) => t.status === "waiting" || t.status === "active");
   const activeFor = (peerId: string) => active.find((t) => t.peerId === peerId);
+  const activeSends = active.filter((t) => t.direction === "send");
+  const cancelPeer = (peerId: string) => activeSends.filter((t) => t.peerId === peerId).forEach((t) => cancelTransfer(t.id));
   //const waitingCode = transfers.find((t) => t.awaiting && t.code);
   const cur = incoming[0];
 
@@ -545,6 +552,7 @@ export default function App() {
                   <li key={t.id}>
                     <span className="cl-name">{t.peerName ?? "устройство"}</span>
                     <span className="cl-code">{t.code && <CodeDigits code={t.code} />}</span>
+                    <button className="cancel-x-button" onClick={() => cancelTransfer(t.id)}><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
                   </li>
                 ))}
               </ul>
@@ -618,7 +626,7 @@ export default function App() {
                 {radarPeers.map((p, i) => (
                   <PeerBubble key={p.id} peer={p} pos={lay.pos[i]} scale={lay.scale} hover={hover === p.id}
                     transfer={activeFor(p.id)} selectMode={multi} selected={selected.includes(p.id)}
-                    onClick={() => onPeerClick(p)} />
+                    onClick={() => onPeerClick(p)} onCancel={() => cancelPeer(p.id)} />
                 ))}
 
                 {hiddenCount > 0 && (
@@ -641,7 +649,7 @@ export default function App() {
                   <div className="peer-grid">
                     {visiblePeers.map((p) => (
                       <PeerBubble key={p.id} peer={p} hover={hover === p.id} transfer={activeFor(p.id)}
-                        selectMode={multi} selected={selected.includes(p.id)} onClick={() => onPeerClick(p)} />
+                        selectMode={multi} selected={selected.includes(p.id)} onClick={() => onPeerClick(p)} onCancel={() => cancelPeer(p.id)} />
                     ))}
                   </div>
                 ) : (
@@ -761,6 +769,9 @@ export default function App() {
               <div className="sheet-head">
                 <span>Передачи</span>
                 <span>
+                  {activeSends.length > 1 && (
+                    <button className="link" onClick={() => activeSends.forEach((t) => cancelTransfer(t.id))}>Отменить все</button>
+                  )}
                   <button className="link" onClick={clearFinished}>Очистить завершённые</button>
                   <button className="link close" onClick={() => setSheet(false)} aria-label="Закрыть">✕</button>
                 </span>
@@ -769,7 +780,7 @@ export default function App() {
                 <p className="hint center pad">Пока ничего не передавалось</p>
               ) : (
                 <ul className="sheet-list">
-                  {transfers.map((t) => <TransferRow key={t.id} t={t} />)}
+                  {transfers.map((t) => <TransferRow key={t.id} t={t} onCancel={() => cancelTransfer(t.id)} />)}
                 </ul>
               )}
             </section>

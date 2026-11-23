@@ -2539,6 +2539,38 @@ h1 {
   justify-content: flex-end;
 }
 
+.cancel-x {
+  stroke: currentColor;
+  color: #fff;
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  z-index: 3; 
+  width: 22px;
+  height: 22px; 
+  border-radius: 50%;
+  display: grid; 
+  place-items: center;
+  background: var(--danger);
+  box-shadow: 0 2px 8px rgba(0,0,0,.3);
+  cursor: default;
+  transition: transform .15s;
+}
+.cancel-x:hover { transform: scale(1.15); }
+.t-row.cancelled .t-status, .h-status.cancelled { color: var(--warn); }
+
+.cancel-x-button {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  border-radius: 30px;
+  stroke: var(--accent)
+}
+
 :root[data-fx="flat"] { --glass: rgba(255,255,255,.94); --glass-strong: #ffffff; }
 @media (prefers-color-scheme: dark) {
   :root[data-fx="flat"]:not([data-theme="light"]) { --glass: rgba(30,37,52,.96); --glass-strong: #1e2534; }

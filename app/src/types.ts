@@ -16,7 +16,7 @@ export interface SettingsData {
 }
 export interface SendResult {
   id: number;
-  outcome: "sent" | "rejected" | "nameConflict" | "failed";
+  outcome: "sent" | "rejected" | "nameConflict" | "failed" | "cancelled";
 }
 export interface DeviceInfo { fingerprint: string; name: string; trusted: boolean }
 export interface HistoryRecord {
@@ -26,7 +26,7 @@ export interface HistoryRecord {
   name: string;
   size: number;
   peer: string;
-  status: "done" | "rejected" | "failed";
+  status: "done" | "rejected" | "failed" | "cancelled";
   path: string | null;
   error: string | null;
   text: string | null;
@@ -42,6 +42,7 @@ export type CoreEvent =
   | { type: "progress"; id: number; done: number; total: number }
   | { type: "finished"; id: number; path: string | null }
   | { type: "rejected"; id: number }
+  | { type: "cancelled"; id: number }
   | { type: "failed"; id: number; error: string };
 
 export interface Incoming {
@@ -57,7 +58,7 @@ export interface Transfer {
   name: string;
   size: number;
   done: number;
-  status: "waiting" | "active" | "done" | "failed" | "rejected";
+  status: "waiting" | "active" | "done" | "failed" | "rejected" | "cancelled";
   awaiting?: boolean;
   peerId?: string;
   peerName?: string;
