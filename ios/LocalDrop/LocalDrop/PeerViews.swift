@@ -1,3 +1,10 @@
+//
+//  PeerViews.swift
+//  LocalDrop
+//
+//  Created by Ablochko on 12.11.2026.
+//
+
 import SwiftUI
 
 func peerHue(_ s: String) -> Double {

@@ -248,8 +248,7 @@ final class LocalDropModel: ObservableObject, EventListener {
         transfers.filter { $0.isSend && $0.peerName == p.name && ($0.status == .waiting || $0.status == .active) }.forEach { cancel($0.id) }
     }
 
-    // MARK: События ядра (приходят из фоновых потоков)
-
+    // MARK: Core events
     nonisolated func onEvent(event: FfiEvent) {
         Task { @MainActor in self.handle(event) }
     }

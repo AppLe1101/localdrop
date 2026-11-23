@@ -1,3 +1,10 @@
+//
+//  ContentView.swift
+//  LocalDrop
+//
+//  Created by Ablochko on 08.11.2026.
+//
+
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -59,8 +66,7 @@ struct ContentView: View {
         .onChange(of: model.staged.count) { _, n in if n < 2 { stagedOpen = false } }
     }
 
-    // MARK: Содержимое
-
+    // MARK: Content
     @ViewBuilder private var mainContent: some View {
         if model.netAccess == .denied {
             ContentUnavailableView {
@@ -183,8 +189,7 @@ struct ContentView: View {
         else { multiPending = true; importing = true }
     }
 
-    // MARK: Нижняя панель
-
+    // MARK: dock
     private var dock: some View {
         VStack(spacing: 10) {
             if !awaiting.isEmpty { codesPanel.transition(.move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.95))) }

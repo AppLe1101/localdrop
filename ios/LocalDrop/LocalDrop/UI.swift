@@ -8,8 +8,7 @@
 import SwiftUI
 import UIKit
 
-// MARK: Палитра
-
+// MARK: Colors
 extension Color {
     static let brand = Color(red: 0.04, green: 0.52, blue: 1.0)
 
@@ -23,7 +22,6 @@ extension Color {
 }
 
 // MARK: Haptics
-
 enum Haptics {
     private static var on: Bool { UserDefaults.standard.object(forKey: "haptics") as? Bool ?? true }
     static func success() { if on { UINotificationFeedbackGenerator().notificationOccurred(.success) } }
@@ -32,8 +30,7 @@ enum Haptics {
     static func tick() { if on { UISelectionFeedbackGenerator().selectionChanged() } }
 }
 
-// MARK: Стекло (Liquid Glass на iOS 26, материалы на старых версиях)
-
+// MARK: Glass
 extension View {
     @ViewBuilder
     func glassShape(_ shape: AnyShape, tint: Color? = nil, interactive: Bool = false, solid: Bool = false) -> some View {
@@ -66,13 +63,11 @@ extension View {
         glassShape(AnyShape(Circle()), tint: tint, interactive: interactive)
     }
 
-    /// Плотная карточка без стекла (для списков и вложенных блоков)
     func surfaceCard(_ radius: CGFloat = 16) -> some View {
         let s = RoundedRectangle(cornerRadius: radius, style: .continuous)
         return self.background(Color.surface, in: s).overlay(s.strokeBorder(Color.surfaceStroke, lineWidth: 1))
     }
 
-    /// Идентификатор для «перетекания» стеклянных элементов (iOS 26)
     @ViewBuilder
     func glassID<ID: Hashable & Sendable>(_ id: ID, in ns: Namespace.ID) -> some View {
         #if compiler(>=6.2)
@@ -107,7 +102,6 @@ private struct NativeGlass: ViewModifier {
 }
 #endif
 
-/// Контейнер, в котором стеклянные элементы сливаются и перетекают друг в друга
 struct GlassGroup<Content: View>: View {
     var spacing: CGFloat = 12
     @ViewBuilder var content: Content
@@ -133,8 +127,7 @@ struct PillButtonStyle: ButtonStyle {
     }
 }
 
-// MARK: Фон с медленно плывущим свечением
-
+// MARK: Background
 struct AppBackground: View {
     var body: some View {
         LinearGradient(colors: [.bgTop, .bgBottom], startPoint: .top, endPoint: .bottom)
@@ -142,9 +135,7 @@ struct AppBackground: View {
     }
 }
 
-// MARK: Аватар, кольцо, поиск
-
-/// Единственное место, где рисуется аватар (позже сюда добавятся фото)
+// MARK: Avatar, ring, search
 struct AvatarView: View {
     let name: String
     var size: CGFloat = 56
@@ -202,8 +193,7 @@ struct SearchField: View {
     }
 }
 
-// MARK: Баннер
-
+// MARK: Banner
 struct BannerView: View {
     let b: Banner
     let onClose: () -> Void
@@ -240,8 +230,7 @@ struct BannerView: View {
     }
 }
 
-// MARK: Цифры кода: появляются по очереди
-
+// MARK: Code digits
 struct CodeDigits: View {
     let code: String
     var size: CGFloat = 38
