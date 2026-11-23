@@ -780,7 +780,7 @@ export default function App() {
                 <p className="hint center pad">Пока ничего не передавалось</p>
               ) : (
                 <ul className="sheet-list">
-                  {transfers.map((t) => <TransferRow key={t.id} t={t} onCancel={() => cancelTransfer(t.id)} />)}
+                  {transfers.map((t) => <TransferRow key={t.id} t={t} />)}
                 </ul>
               )}
             </section>
