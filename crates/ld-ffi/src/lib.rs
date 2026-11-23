@@ -227,10 +227,6 @@ impl LocalDrop {
         });
         Ok(id)
     }
-
-    pub fn cancel(&self, id: u64) -> bool {
-        self.core.cancel(id)
-    }
 }
 
 #[uniffi::export]
@@ -269,6 +265,10 @@ impl LocalDrop {
 
     pub fn shutdown(&self) {
         self.server.close(0u32.into(), b"bye");
+    }
+
+    pub fn cancel(&self, id: u64) -> bool {
+        self.core.cancel(id)
     }
 
     pub fn port(&self) -> u16 {
