@@ -36,8 +36,8 @@ type Action =
 const byName = (a: Peer, b: Peer) => a.name.localeCompare(b.name);
 
 function isUnresolvedService(peer: Peer): boolean {
-  const id = peer.id.toLowerCase();
-  return id.startsWith("ld-") && id.endsWith("_localdrop._udp.local");
+  const name = peer.name.toLowerCase();
+  return name.startsWith("ld-") && name.endsWith("._localdrop._udp.local.");
 }
 
 function patch(s: State, id: number, p: Partial<Transfer>): State {

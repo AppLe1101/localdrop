@@ -10,6 +10,7 @@ import DevicesView from "./views/Devices";
 import HistoryView from "./views/History";
 import SettingsView from "./views/Settings";
 import WebView from "./views/Web";
+import Welcome, { markWelcome, welcomeSeen } from "./views/Welcome";
 import TitleBar, {IS_MAC} from "./components/TitleBar";
 import CodeDigits from "./components/CodeDigits";
 import type { Peer, Transfer } from "./types";
@@ -68,7 +69,7 @@ function radarLayout(n: number) {
     const c = counts[ri];
     const off = ri % 2 ? Math.PI / Math.max(c, 1) : 0;
     for (let i = 0; i < c; i++) {
-      const a = -Math.PI / 2 + off + (i * 2 * Math.PI) / c;
+      const a = -Math.PI / 2 + off + (n <= 3 ? Math.PI / 6 : 0) + (i * 2 * Math.PI) / c;
       pos.push({ x: 50 + r * Math.cos(a), y: 50 + r * Math.sin(a) });
     }
   });
@@ -248,6 +249,21 @@ export default function App() {
 
   const [stagedOpen, setStagedOpen] = useState(false);
   const dockRef = useRef<HTMLDivElement>(null);
+
+  const [welcome, setWelcome] = useState(() => !welcomeSeen());
+
+  useEffect(() => {
+    if (welcomeSeen()) return;
+    invoke<unknown[]>("list_history", { limit: 1 })
+      .then((h) => { if (h.length) { markWelcome(); setWelcome(false); } })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const h = () => setWelcome(true);
+    window.addEventListener("ld-welcome", h);
+    return () => window.removeEventListener("ld-welcome", h);
+  }, []);
 
   useEffect(() => {
     if (staged.length < 2) setStagedOpen(false);
@@ -504,19 +520,34 @@ export default function App() {
   //const waitingCode = transfers.find((t) => t.awaiting && t.code);
   const cur = incoming[0];
 
+  const [visOpen, setVisOpen] = useState(false);
+  const visRef = useRef<HTMLDivElement>(null);
+  const VIS = { everyone: "Всех", trustedOnly: "Только доверенных", off: "Никого" } as const;
+
+  useEffect(() => {
+    if (!visOpen) return;
+    const down = (e: MouseEvent) => { if (!visRef.current?.contains(e.target as Node)) setVisOpen(false); };
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setVisOpen(false);
+    document.addEventListener("mousedown", down);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", down); document.removeEventListener("keydown", esc); };
+  }, [visOpen]);
+
   return (
     <main className={
       (dragging ? "dragging " : "") + (focused ? "" : "unfocused ") + (scrolled ? "scrolled" : "")
     }>
       <div className="bg" />
       <div className="topfx" aria-hidden><i /><i /><i /></div>
-      <TitleBar
-        tabs={TABS}
-        view={view}
-        onView={(v) => setView(v as View)}
-        busy={active.length > 0}
-        info={info}
-      />
+      {!welcome && 
+        <TitleBar
+          tabs={TABS}
+          view={view}
+          onView={(v) => setView(v as View)}
+          busy={active.length > 0}
+          info={info}
+        />
+      }
 
       {net && netHidden !== net && (
         <div className="netbar glass">
@@ -598,14 +629,25 @@ export default function App() {
       {view === "radar" && (
         <div className="radar-view">
           <section className="stage">
-            <div className="view-switch glass">
-              {(["radar", "grid", "list"] as PeerView[]).map((v) => (
-                <button key={v} className={peerView === v ? "on" : ""}
-                  title={{ radar: "Радар", grid: "Таблица", list: "Список" }[v]} aria-label={v} onClick={() => setPeerView(v)}>
-                  <Ico>{ICON[v]}</Ico>
+            {info && (
+              <div className="vis" ref={visRef}>
+                <button className="vis-pill glass" onClick={() => setVisOpen((o) => !o)}>
+                  <i className={"vis-dot " + info.visibility} />
+                  Принимать от: {VIS[info.visibility]}
+                  <span className="vis-chev"><Ico>{ICON.chevron}</Ico></span>
                 </button>
-              ))}
-            </div>
+                {visOpen && (
+                  <div className="vis-menu glass strong">
+                    {(["everyone", "trustedOnly", "off"] as const).map((m) => (
+                      <button key={m} className={info.visibility === m ? "on" : ""}
+                        onClick={() => invoke("set_visibility", { mode: m }).then(() => { refreshInfo(); setVisOpen(false); })}>
+                        <i className={"vis-dot " + m} />{VIS[m]}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {peers.length > 6 && (
               <label className="peer-search glass">
@@ -621,7 +663,10 @@ export default function App() {
                 <i className="orbit o3" />
                 {lay.radii.map((r) => <i key={r} className="orbit" style={{ inset: `${50 - r}%` }} />)}
                 <i className="pulse" /><i className="pulse" /><i className="pulse" />
-                <div className="me"><span className="avatar me-avatar">{initial(info?.name ?? "")}</span></div>
+                <div className="me">
+                  <span className="avatar me-avatar">{initial(info?.name ?? "")}</span>
+                  <span className="me-name">{info?.name}</span>
+                </div>
 
                 {radarPeers.map((p, i) => (
                   <PeerBubble key={p.id} peer={p} pos={lay.pos[i]} scale={lay.scale} hover={hover === p.id}
@@ -710,6 +755,20 @@ export default function App() {
               )}
 
               <div className="dock-bar">
+                {!multi && (
+                  <div className="seg-icons" role="group" aria-label="Вид устройств">
+                    <i className="seg-thumb" style={{ transform: `translateX(${(["radar", "grid", "list"] as PeerView[]).indexOf(peerView) * 32}px)` }} />
+                    {(["radar", "grid", "list"] as PeerView[]).map((v) => (
+                      <button key={v} className={peerView === v ? "on" : ""}
+                        title={{ radar: "Радар", grid: "Таблица", list: "Список" }[v]}
+                        aria-label={{ radar: "Радар", grid: "Таблица", list: "Список" }[v]}
+                        onClick={() => setPeerView(v)}>
+                        <Ico>{ICON[v]}</Ico>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 <span className="dock-text hint">
                   {multi
                     ? selected.length
@@ -826,6 +885,8 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {welcome && <Welcome onClose={() => { setWelcome(false); refreshInfo(); }} />}
 
       {cur && (
         <div className="overlay">

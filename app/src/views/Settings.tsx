@@ -355,6 +355,10 @@ export default function SettingsView({ info, notify, onChanged }: Props) {
           </div>
           <code className="value">{info?.fpShort}</code>
         </div>
+        <div className="srow">
+          <div className="grow"><div className="label">Приветствие</div><div className="value">Короткая подсказка по приложению</div></div>
+          <button className="pill" onClick={() => window.dispatchEvent(new Event("ld-welcome"))}>Показать</button>
+        </div>
       </div>
     </section>
   );
